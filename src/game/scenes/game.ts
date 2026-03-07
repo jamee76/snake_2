@@ -1,4 +1,4 @@
-import type { KAPLAYCtx } from "kaplay";
+import type { KAPLAYCtx, GameObj, ColorComp } from "kaplay";
 import type { IPlatform } from "../../platform/platform.ts";
 import {
   GRID_COLS,
@@ -8,6 +8,15 @@ import {
   stepMsFromScore,
   KEY_BEST_SCORE,
   INTERSTITIAL_EVERY_N_DEATHS,
+  MIN_STEP_MS,
+  PURPLE_LIFETIME_MS,
+  PURPLE_SPEED_BOOST,
+  PURPLE_BLINK_MS,
+  PURPLE_BLINK_PERIOD_MS,
+  COLOR_PURPLE,
+  COLOR_HEAD_NORMAL,
+  purpleSpawnChance,
+  purpleInvincibilityMs,
 } from "../systems/balance.ts";
 import { rng } from "../../shared/rng.ts";
 import { telemetry } from "../../shared/telemetry.ts";
@@ -71,7 +80,17 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       let gameOver = false;
 
       // ─── Food ────────────────────────────────────────────────
-      let food: Cell = spawnFood(snake);
+      let food: Cell = spawnFood(snake, null);
+      let foodEaten = 0;
+
+      // ─── Purple dot ──────────────────────────────────────────
+      let purpleFood: Cell | null = null;
+      let purpleLifetimeMs = 0;
+
+      // ─── Invincibility ───────────────────────────────────────
+      let invincible = false;
+      let invincibleTimeMs = 0;
+      let blinkAccum = 0;
 
       // ─── Background ──────────────────────────────────────────
       k.add([k.rect(W, H), k.color(15, 20, 30), k.pos(0, 0), k.fixed()]);
@@ -191,11 +210,17 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       // (simple approach: destroy & re-add each step)
       const snakeObjs: ReturnType<typeof k.add>[] = [];
       let foodObj: ReturnType<typeof k.add> | null = null;
+      let purpleFoodObj: ReturnType<typeof k.add> | null = null;
+      // Head is kept separate so its color can be updated between steps (blink)
+      let headObj: GameObj<ColorComp> | null = null;
 
       function redraw(): void {
-        // Remove previous snake rects
+        // Remove previous snake body rects
         for (const obj of snakeObjs) obj.destroy();
         snakeObjs.length = 0;
+
+        // Remove previous head
+        if (headObj) { headObj.destroy(); headObj = null; }
 
         // Draw body
         const pad = Math.max(1, Math.floor(cellSize * 0.08));
@@ -211,17 +236,16 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           );
         }
 
-        // Draw head (different colour)
+        // Draw head — purple when invincible, green otherwise
         if (snake.length > 0) {
           const { x, y } = cellToWorld(snake[0]);
-          snakeObjs.push(
-            k.add([
-              k.rect(cellSize - pad * 2, cellSize - pad * 2),
-              k.color(100, 240, 100),
-              k.pos(x + pad, y + pad),
-              k.fixed(),
-            ])
-          );
+          const [hr, hg, hb] = invincible ? COLOR_PURPLE : COLOR_HEAD_NORMAL;
+          headObj = k.add([
+            k.rect(cellSize - pad * 2, cellSize - pad * 2),
+            k.color(hr, hg, hb),
+            k.pos(x + pad, y + pad),
+            k.fixed(),
+          ]) as GameObj<ColorComp>;
         }
 
         // Food
@@ -233,6 +257,19 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           k.pos(fp.x + pad, fp.y + pad),
           k.fixed(),
         ]);
+
+        // Purple dot
+        if (purpleFoodObj) purpleFoodObj.destroy();
+        purpleFoodObj = null;
+        if (purpleFood) {
+          const pp = cellToWorld(purpleFood);
+          purpleFoodObj = k.add([
+            k.rect(cellSize - pad * 2, cellSize - pad * 2),
+            k.color(...COLOR_PURPLE),
+            k.pos(pp.x + pad, pp.y + pad),
+            k.fixed(),
+          ]);
+        }
       }
 
       redraw();
@@ -241,16 +278,52 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       k.onUpdate(() => {
         if (gameOver) return;
 
-        stepAccum += k.dt() * 1000;
-        const stepMs = stepMsFromScore(score);
+        const dt = k.dt() * 1000;
 
-        if (stepAccum < stepMs) return;
-        stepAccum -= stepMs;
+        // ── Purple dot lifetime ───────────────────────────────
+        if (purpleFood) {
+          purpleLifetimeMs -= dt;
+          if (purpleLifetimeMs <= 0) {
+            purpleFood = null;
+            if (purpleFoodObj) { purpleFoodObj.destroy(); purpleFoodObj = null; }
+          }
+        }
 
-        // Advance direction
+        // ── Invincibility timer ───────────────────────────────
+        if (invincible) {
+          invincibleTimeMs -= dt;
+          blinkAccum += dt;
+
+          if (invincibleTimeMs <= 0) {
+            // Invincibility expired — restore head to green immediately
+            invincible = false;
+            blinkAccum = 0;
+            if (headObj) {
+              [headObj.color.r, headObj.color.g, headObj.color.b] = COLOR_HEAD_NORMAL;
+            }
+          } else if (invincibleTimeMs <= PURPLE_BLINK_MS && headObj) {
+            // Last 2 seconds — blink head between purple and green
+            const blinkOn =
+              Math.floor(blinkAccum / PURPLE_BLINK_PERIOD_MS) % 2 === 0;
+            [headObj.color.r, headObj.color.g, headObj.color.b] = blinkOn
+              ? COLOR_PURPLE
+              : COLOR_HEAD_NORMAL;
+          }
+        }
+
+        // ── Step accumulator (speed boosted while invincible) ─
+        stepAccum += dt;
+        const baseStepMs = stepMsFromScore(score);
+        const effectiveStepMs = invincible
+          ? Math.max(MIN_STEP_MS, Math.round(baseStepMs / PURPLE_SPEED_BOOST))
+          : baseStepMs;
+
+        if (stepAccum < effectiveStepMs) return;
+        stepAccum -= effectiveStepMs;
+
+        // ── Move snake ───────────────────────────────────────
         dir = nextDir;
 
-        // Move head
         const head = snake[0];
         const newHead: Cell = { x: head.x, y: head.y };
         if (dir === "up") newHead.y -= 1;
@@ -258,7 +331,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         else if (dir === "left") newHead.x -= 1;
         else newHead.x += 1;
 
-        // Wall collision
+        // Wall collision — always lethal, even while invincible
         if (
           newHead.x < 0 ||
           newHead.x >= GRID_COLS ||
@@ -269,22 +342,43 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           return;
         }
 
-        // Self collision (skip tail that will be removed if no food)
         const eatFood =
           newHead.x === food.x && newHead.y === food.y;
-        const bodyToCheck = eatFood
-          ? snake
-          : snake.slice(0, snake.length - 1);
-        if (bodyToCheck.some((c) => c.x === newHead.x && c.y === newHead.y)) {
-          triggerGameOver();
-          return;
+
+        const eatPurple =
+          purpleFood !== null &&
+          newHead.x === purpleFood.x &&
+          newHead.y === purpleFood.y;
+
+        // Eating the purple dot grants invincibility before the self-collision
+        // check, so the snake can immediately pass through its tail this step.
+        if (eatPurple) {
+          const stepMs = stepMsFromScore(score);
+          invincibleTimeMs = purpleInvincibilityMs(stepMs);
+          invincible = true;
+          blinkAccum = 0;
+          purpleFood = null;
+          if (purpleFoodObj) { purpleFoodObj.destroy(); purpleFoodObj = null; }
+          telemetry.log("game:purple", { score });
+        }
+
+        // Self collision — skipped while invincible
+        if (!invincible) {
+          const bodyToCheck = eatFood
+            ? snake
+            : snake.slice(0, snake.length - 1);
+          if (bodyToCheck.some((c) => c.x === newHead.x && c.y === newHead.y)) {
+            triggerGameOver();
+            return;
+          }
         }
 
         // Eat food
         if (eatFood) {
+          foodEaten += 1;
           score += SCORE_PER_FOOD;
           snake = [newHead, ...snake];
-          food = spawnFood(snake);
+          food = spawnFood(snake, purpleFood);
           if (score > bestScore) {
             bestScore = score;
             platform.storage.set(KEY_BEST_SCORE, bestScore);
@@ -292,6 +386,12 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           scoreLabel.text = `Score: ${score}`;
           bestLabel.text = `Best: ${bestScore}`;
           telemetry.log("game:eat", { score });
+
+          // Possibly spawn a purple dot
+          if (!purpleFood && rng.next() < purpleSpawnChance(foodEaten)) {
+            purpleFood = spawnPurpleFood(snake, food);
+            if (purpleFood) purpleLifetimeMs = PURPLE_LIFETIME_MS;
+          }
         } else {
           // Move: add new head, remove tail
           snake = [newHead, ...snake.slice(0, snake.length - 1)];
@@ -339,8 +439,10 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function spawnFood(snake: Cell[]): Cell {
+/** Spawn regular food avoiding the snake body and an optional purple dot. */
+function spawnFood(snake: Cell[], purpleFood: Cell | null): Cell {
   const occupied = new Set(snake.map((c) => `${c.x},${c.y}`));
+  if (purpleFood) occupied.add(`${purpleFood.x},${purpleFood.y}`);
   const free: Cell[] = [];
   for (let y = 0; y < GRID_ROWS; y++) {
     for (let x = 0; x < GRID_COLS; x++) {
@@ -348,5 +450,19 @@ function spawnFood(snake: Cell[]): Cell {
     }
   }
   if (free.length === 0) return { x: 0, y: 0 }; // Grid is full — edge case
+  return free[rng.int(free.length)];
+}
+
+/** Spawn purple dot avoiding the snake body and the regular food cell. */
+function spawnPurpleFood(snake: Cell[], regularFood: Cell): Cell | null {
+  const occupied = new Set(snake.map((c) => `${c.x},${c.y}`));
+  occupied.add(`${regularFood.x},${regularFood.y}`);
+  const free: Cell[] = [];
+  for (let y = 0; y < GRID_ROWS; y++) {
+    for (let x = 0; x < GRID_COLS; x++) {
+      if (!occupied.has(`${x},${y}`)) free.push({ x, y });
+    }
+  }
+  if (free.length === 0) return null;
   return free[rng.int(free.length)];
 }
