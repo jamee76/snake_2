@@ -61,10 +61,10 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
       continuesUsed < MAX_CONTINUES_PER_RUN && cooldownOk;
 
     // ─── Buttons ─────────────────────────────────────────────
-    const btnW = Math.min(W * 0.38, 200);
-    const btnH = Math.max(H * 0.13, 50);
-    const btnY = H * 0.57;
-    const gap = Math.min(W * 0.04, 20);
+    const btnW = Math.min(W * 0.72, 300);
+    const btnH = Math.max(H * 0.11, 48);
+    const gap = Math.max(H * 0.018, 10);
+    const bx = Math.floor((W - btnW) / 2);
 
     // Layout: if continue button is shown, 3 buttons; else 2
     const buttons: { label: string; color: string; action: () => void }[] = [];
@@ -83,23 +83,23 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
       action: handleMenu,
     });
 
-    const totalW = buttons.length * btnW + (buttons.length - 1) * gap;
-    const startX = (W - totalW) / 2;
+    // Buttons stacked top-to-bottom in one column
+    const startY = Math.floor(H * 0.55);
 
     buttons.forEach((btn, i) => {
-      const bx = startX + i * (btnW + gap);
+      const by = startY + i * (btnH + gap);
       const bg = k.add([
         k.rect(btnW, btnH, { radius: 8 }),
         k.color(k.Color.fromHex(btn.color)),
-        k.pos(bx, btnY),
+        k.pos(bx, by),
         k.fixed(),
         k.area(),
       ]);
 
       k.add([
-        k.text(btn.label, { size: Math.min(btnW * 0.17, 20), font: "monospace", align: "center" }),
+        k.text(btn.label, { size: Math.min(btnW * 0.14, 20), font: "monospace", align: "center" }),
         k.color(255, 255, 255),
-        k.pos(bx + btnW / 2, btnY + btnH / 2),
+        k.pos(bx + btnW / 2, by + btnH / 2),
         k.anchor("center"),
         k.fixed(),
       ]);

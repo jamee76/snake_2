@@ -36,8 +36,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const W = k.width();
       const H = k.height();
 
-      // Reserve bottom area for controls
-      const CTRL_H = Math.max(H * 0.22, 80);
+      // Reserve bottom area for controls (2 button rows → needs more space)
+      const CTRL_H = Math.max(H * 0.30, 130);
       const GAME_H = H - CTRL_H;
 
       // Cell size that fits the grid inside the game area
@@ -107,24 +107,30 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         k.fixed(),
       ]);
 
-      // ─── Control buttons (4 in a row: Up | Left | Down | Right) ──
+      // ─── Control buttons (WASD layout) ──────────────────────────────────
+      //    [Up]
+      // [Left][Down][Right]
       const btnAreaY = H - CTRL_H;
-      const btnSize = Math.min(CTRL_H * 0.72, 60);
-      const btnGap = Math.min(CTRL_H * 0.12, 10);
-      const totalBtnsW = btnSize * 4 + btnGap * 3;
-      const btnStartX = (W - totalBtnsW) / 2;
-      const btnStartY = btnAreaY + (CTRL_H - btnSize) / 2;
+      const btnSize = Math.min(
+        Math.floor((CTRL_H - 24) / 2) - 4,   // fit 2 rows with padding
+        Math.floor(W / 5)                      // don't overflow horizontally
+      );
+      const btnGap = Math.max(4, Math.floor(btnSize * 0.12));
+      const totalBtnsW = btnSize * 3 + btnGap * 2;
+      const totalBtnsH = btnSize * 2 + btnGap;
+      const btnStartX = Math.floor((W - totalBtnsW) / 2);
+      const btnStartY = Math.floor(btnAreaY + (CTRL_H - totalBtnsH) / 2);
 
-      const dirButtons: { dir: Direction; label: string; col: number }[] = [
-        { dir: "up", label: "▲", col: 0 },
-        { dir: "left", label: "◄", col: 1 },
-        { dir: "down", label: "▼", col: 2 },
-        { dir: "right", label: "►", col: 3 },
+      const dirButtons: { dir: Direction; label: string; col: number; row: number }[] = [
+        { dir: "up",    label: "▲", col: 1, row: 0 },
+        { dir: "left",  label: "◄", col: 0, row: 1 },
+        { dir: "down",  label: "▼", col: 1, row: 1 },
+        { dir: "right", label: "►", col: 2, row: 1 },
       ];
 
       for (const btn of dirButtons) {
         const bx = btnStartX + btn.col * (btnSize + btnGap);
-        const by = btnStartY;
+        const by = btnStartY + btn.row * (btnSize + btnGap);
 
         const bg = k.add([
           k.rect(btnSize, btnSize, { radius: 8 }),
