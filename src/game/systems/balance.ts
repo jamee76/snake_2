@@ -1,8 +1,8 @@
 /** All gameplay balance constants in one place — tweak here only. */
 
-// Grid
-export const GRID_COLS = 24;
-export const GRID_ROWS = 14;
+// Grid (portrait-friendly for 9:16 mobile screens)
+export const GRID_COLS = 14;
+export const GRID_ROWS = 24;
 
 // Snake start
 export const SNAKE_START_LENGTH = 3;

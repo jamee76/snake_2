@@ -107,9 +107,12 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         k.fixed(),
       ]);
 
-      // ─── Control buttons (WASD layout) ──────────────────────────────────
-      //    [Up]
-      // [Left][Down][Right]
+      // ─── Control buttons (3-column layout) ──────────────────────────────
+      // ┌────────┐ ┌────────┐ ┌────────┐
+      // │        │ │   ▲    │ │        │
+      // │   ◄    │ ├────────┤ │   ►    │   ← Left & Right span both rows
+      // │        │ │   ▼    │ │        │
+      // └────────┘ └────────┘ └────────┘
       const btnAreaY = H - CTRL_H;
       const btnSize = Math.min(
         Math.floor((CTRL_H - 24) / 2) - 4,   // fit 2 rows with padding
@@ -121,19 +124,21 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const btnStartX = Math.floor((W - totalBtnsW) / 2);
       const btnStartY = Math.floor(btnAreaY + (CTRL_H - totalBtnsH) / 2);
 
-      const dirButtons: { dir: Direction; label: string; col: number; row: number }[] = [
+      // tall: true means the button spans both rows (height = btnSize*2 + btnGap)
+      const dirButtons: { dir: Direction; label: string; col: number; row: number; tall?: boolean }[] = [
+        { dir: "left",  label: "◄", col: 0, row: 0, tall: true },
         { dir: "up",    label: "▲", col: 1, row: 0 },
-        { dir: "left",  label: "◄", col: 0, row: 1 },
         { dir: "down",  label: "▼", col: 1, row: 1 },
-        { dir: "right", label: "►", col: 2, row: 1 },
+        { dir: "right", label: "►", col: 2, row: 0, tall: true },
       ];
 
       for (const btn of dirButtons) {
         const bx = btnStartX + btn.col * (btnSize + btnGap);
         const by = btnStartY + btn.row * (btnSize + btnGap);
+        const bh = btn.tall ? btnSize * 2 + btnGap : btnSize;
 
         const bg = k.add([
-          k.rect(btnSize, btnSize, { radius: 8 }),
+          k.rect(btnSize, bh, { radius: 8 }),
           k.color(40, 80, 40),
           k.pos(bx, by),
           k.fixed(),
@@ -144,7 +149,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         k.add([
           k.text(btn.label, { size: btnSize * 0.45, font: "monospace" }),
           k.color(180, 255, 180),
-          k.pos(bx + btnSize / 2, by + btnSize / 2),
+          k.pos(bx + btnSize / 2, by + bh / 2),
           k.anchor("center"),
           k.fixed(),
         ]);
