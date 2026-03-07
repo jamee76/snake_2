@@ -8,7 +8,7 @@ export const GRID_ROWS = 24;
 export const SNAKE_START_LENGTH = 3;
 
 // Scoring
-export const SCORE_PER_FOOD = 10;
+export const BASE_SCORE_PER_FOOD = 10;
 
 // Speed progression
 export const BASE_STEP_MS = 220;       // ms between snake steps at score 0
@@ -33,11 +33,16 @@ export const PURPLE_INVINCIBILITY_FAST_MS = 6_000; // invincibility at fastest s
 export const PURPLE_SPEED_BOOST = 1.5;             // +50% speed while invincible
 export const PURPLE_BLINK_MS = 2_000;              // head starts blinking in last 2 s
 export const PURPLE_BLINK_PERIOD_MS = 300;         // blink toggle every 300 ms
+export const PURPLE_CHANCE_PER_FOOD = 0.05;        // +5 % chance per food eaten since last spawn
+export const PURPLE_COOLDOWN_MS = 10_000;          // cooldown after picking up purple
 
-// Purple dot / invincible head colour (RGB 0-255)
+// Gold apple / score multiplier
+export const GOLD_CHAIN_TIMEOUT_MS = 10_000; // chain resets if no gold eaten for 10 s
+
+// Colours (RGB 0-255)
 export const COLOR_PURPLE = [180, 0, 200] as const;
-// Normal snake head colour (RGB 0-255)
 export const COLOR_HEAD_NORMAL = [100, 240, 100] as const;
+export const COLOR_GOLD = [255, 200, 0] as const;
 
 /** Compute step interval in ms from the current score. */
 export function stepMsFromScore(score: number): number {
@@ -46,13 +51,12 @@ export function stepMsFromScore(score: number): number {
 }
 
 /**
- * Probability of spawning a purple dot after eating one food item.
- * 5 % at the first food eaten, scaling linearly up to 100 % at food #20.
+ * Probability of spawning a purple dot after eating food.
+ * Increases by 5 % per food eaten since the last purple spawn.
+ * Resets to 0 % when a purple dot spawns.
  */
-export function purpleSpawnChance(foodEaten: number): number {
-  if (foodEaten <= 0) return 0;
-  const t = Math.min(foodEaten - 1, 19) / 19;
-  return 0.05 + t * 0.95;
+export function purpleSpawnChance(foodEatenSinceSpawn: number): number {
+  return Math.min(1, foodEatenSinceSpawn * PURPLE_CHANCE_PER_FOOD);
 }
 
 /**
