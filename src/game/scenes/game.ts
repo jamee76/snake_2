@@ -1,4 +1,4 @@
-import type { KAPLAYCtx, GameObj, ColorComp } from "kaplay";
+import type { KAPLAYCtx, GameObj, ColorComp, OpacityComp, AreaComp } from "kaplay";
 import type { IPlatform } from "../../platform/platform.ts";
 import {
   GRID_COLS,
@@ -16,6 +16,12 @@ import {
   COLOR_HEAD_NORMAL,
   purpleSpawnChance,
   purpleInvincibilityMs,
+  DIAL_CTRL_H_FRAC,
+  DIAL_RADIUS_FRAC,
+  DIAL_BTN_COLOR,
+  DIAL_BTN_DISABLED_COLOR,
+  DIAL_BTN_OPACITY_ENABLED,
+  DIAL_BTN_OPACITY_DISABLED,
 } from "../systems/balance.ts";
 import { rng } from "../../shared/rng.ts";
 import { telemetry } from "../../shared/telemetry.ts";
@@ -39,12 +45,16 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
     }) => {
       telemetry.log("scene:game", opts);
 
+      // ─── Touch detection ─────────────────────────────────────
+      const isTouch =
+        navigator.maxTouchPoints > 0 || "ontouchstart" in window;
+
       // ─── Layout ──────────────────────────────────────────────
       const W = k.width();
       const H = k.height();
 
-      // No on-screen controls — full height for gameplay
-      const CTRL_H = 0;
+      // Reserve bottom area for the dial on touch devices
+      const CTRL_H = isTouch ? Math.floor(H * DIAL_CTRL_H_FRAC) : 0;
       const GAME_H = H - CTRL_H;
 
       // Cell size that fits the grid inside the game area
@@ -72,7 +82,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       }
 
       let dir: Direction = "right";
-      let nextDir: Direction = "right";
+      let turnQueue: Direction[] = [];
       let stepAccum = 0;
       let gameOver = false;
 
@@ -154,29 +164,31 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       invBarFill.hidden = true;
       invBarText.hidden = true;
 
-      // ─── Touch swipe controls (mobile) ───────────────────────
-      const SWIPE_MIN_DIST_PX = 30;
-      let touchStartX = 0;
-      let touchStartY = 0;
+      // ─── Touch swipe controls (non-touch/desktop fallback only) ─
+      if (!isTouch) {
+        const SWIPE_MIN_DIST_PX = 30;
+        let touchStartX = 0;
+        let touchStartY = 0;
 
-      k.onTouchStart((pos) => {
-        touchStartX = pos.x;
-        touchStartY = pos.y;
-      });
+        k.onTouchStart((pos) => {
+          touchStartX = pos.x;
+          touchStartY = pos.y;
+        });
 
-      k.onTouchEnd((pos) => {
-        if (gameOver) return;
-        const dx = pos.x - touchStartX;
-        const dy = pos.y - touchStartY;
-        const adx = Math.abs(dx);
-        const ady = Math.abs(dy);
-        if (Math.max(adx, ady) < SWIPE_MIN_DIST_PX) return;
-        if (adx > ady) {
-          applyDir(dx > 0 ? "right" : "left");
-        } else {
-          applyDir(dy > 0 ? "down" : "up");
-        }
-      });
+        k.onTouchEnd((pos) => {
+          if (gameOver) return;
+          const dx = pos.x - touchStartX;
+          const dy = pos.y - touchStartY;
+          const adx = Math.abs(dx);
+          const ady = Math.abs(dy);
+          if (Math.max(adx, ady) < SWIPE_MIN_DIST_PX) return;
+          if (adx > ady) {
+            applyDir(dx > 0 ? "right" : "left");
+          } else {
+            applyDir(dy > 0 ? "down" : "up");
+          }
+        });
+      }
 
       // ─── Keyboard controls (desktop) ─────────────────────────
       k.onKeyPress("up", () => applyDir("up"));
@@ -188,13 +200,19 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       k.onKeyPress("a", () => applyDir("left"));
       k.onKeyPress("d", () => applyDir("right"));
 
+      function isOpposite(a: Direction, b: Direction): boolean {
+        return (
+          (a === "up" && b === "down") ||
+          (a === "down" && b === "up") ||
+          (a === "left" && b === "right") ||
+          (a === "right" && b === "left")
+        );
+      }
+
       function applyDir(d: Direction): void {
-        // Forbid 180° reversal
-        if (d === "up" && dir === "down") return;
-        if (d === "down" && dir === "up") return;
-        if (d === "left" && dir === "right") return;
-        if (d === "right" && dir === "left") return;
-        nextDir = d;
+        // Forbid 180° reversal — overwrite queue with single direction
+        if (isOpposite(d, dir)) return;
+        turnQueue = [d];
       }
 
       // ─── Render helpers ──────────────────────────────────────
@@ -273,6 +291,128 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
       redraw();
 
+      // ─── Dial UI state callbacks (populated for touch devices) ──
+      let updateDialState = () => {};
+      let updateQueueDisplay = () => {};
+
+      // ─── Dial UI (touch devices only) ────────────────────────────
+      if (isTouch) {
+        const DIAL_BTNS: Array<{ label: string; dirs: Direction[] }> = [
+          { label: "↑",  dirs: ["up"] },
+          { label: "↑→", dirs: ["up", "right"] },
+          { label: "→↑", dirs: ["right", "up"] },
+          { label: "→",  dirs: ["right"] },
+          { label: "→↓", dirs: ["right", "down"] },
+          { label: "↓→", dirs: ["down", "right"] },
+          { label: "↓",  dirs: ["down"] },
+          { label: "↓←", dirs: ["down", "left"] },
+          { label: "←↓", dirs: ["left", "down"] },
+          { label: "←",  dirs: ["left"] },
+          { label: "←↑", dirs: ["left", "up"] },
+          { label: "↑←", dirs: ["up", "left"] },
+        ];
+
+        const dialRadius = Math.min(CTRL_H * DIAL_RADIUS_FRAC, W * 0.42);
+        const btnSize = Math.max(28, Math.min(44, dialRadius * 0.32));
+        const labelSize = Math.max(10, Math.floor(btnSize * 0.5));
+        const dialCX = W / 2;
+        const dialCY = GAME_H + CTRL_H / 2;
+
+        // Panel background
+        k.add([
+          k.rect(W, CTRL_H),
+          k.color(10, 15, 25),
+          k.pos(0, GAME_H),
+          k.fixed(),
+        ]);
+
+        // Queue indicator
+        const queueLbl = k.add([
+          k.text("Queue: —", {
+            size: Math.max(10, Math.floor(hudSize * 0.85)),
+            font: "monospace",
+          }),
+          k.color(180, 220, 180),
+          k.pos(W / 2, GAME_H + 6),
+          k.anchor("top"),
+          k.fixed(),
+        ]);
+
+        // Arrow symbols for queue display
+        const arrowOf: Record<Direction, string> = {
+          up: "↑", down: "↓", left: "←", right: "→",
+        };
+
+        // Build button objects
+        type BtnObj = { dirs: Direction[]; bg: GameObj<ColorComp & OpacityComp & AreaComp> };
+        const btns: BtnObj[] = [];
+
+        for (let i = 0; i < DIAL_BTNS.length; i++) {
+          const def = DIAL_BTNS[i];
+          const angle = -Math.PI / 2 + i * ((2 * Math.PI) / 12);
+          const cx = dialCX + Math.cos(angle) * dialRadius;
+          const cy = dialCY + Math.sin(angle) * dialRadius;
+
+          const [r, g, b] = DIAL_BTN_COLOR;
+          const bg = k.add([
+            k.rect(btnSize, btnSize, { radius: Math.floor(btnSize * 0.2) }),
+            k.color(r, g, b),
+            k.opacity(DIAL_BTN_OPACITY_ENABLED),
+            k.area(),
+            k.pos(cx - btnSize / 2, cy - btnSize / 2),
+            k.fixed(),
+          ]) as GameObj<ColorComp & OpacityComp & AreaComp>;
+
+          k.add([
+            k.text(def.label, { size: labelSize, font: "monospace" }),
+            k.color(255, 255, 255),
+            k.pos(cx, cy),
+            k.anchor("center"),
+            k.fixed(),
+          ]);
+
+          // Capture dirs for the closure
+          const btnDirs = def.dirs;
+          bg.onClick(() => {
+            if (gameOver) return;
+            if (isOpposite(btnDirs[0], dir)) return;
+            turnQueue = [...btnDirs];
+            updateQueueDisplay();
+          });
+
+          btns.push({ dirs: def.dirs, bg });
+        }
+
+        updateDialState = () => {
+          for (const btn of btns) {
+            const disabled = isOpposite(btn.dirs[0], dir);
+            if (disabled) {
+              const [r, g, b] = DIAL_BTN_DISABLED_COLOR;
+              btn.bg.color.r = r;
+              btn.bg.color.g = g;
+              btn.bg.color.b = b;
+              btn.bg.opacity = DIAL_BTN_OPACITY_DISABLED;
+            } else {
+              const [r, g, b] = DIAL_BTN_COLOR;
+              btn.bg.color.r = r;
+              btn.bg.color.g = g;
+              btn.bg.color.b = b;
+              btn.bg.opacity = DIAL_BTN_OPACITY_ENABLED;
+            }
+          }
+        };
+
+        updateQueueDisplay = () => {
+          queueLbl.text =
+            turnQueue.length > 0
+              ? "Queue: " + turnQueue.map((d) => arrowOf[d]).join(" , ")
+              : "Queue: —";
+        };
+
+        // Set initial disabled states
+        updateDialState();
+      }
+
       // ─── Game loop ───────────────────────────────────────────
       k.onUpdate(() => {
         if (gameOver) return;
@@ -335,9 +475,16 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         if (stepAccum < effectiveStepMs) return;
         stepAccum -= effectiveStepMs;
 
-        // ── Move snake ───────────────────────────────────────
-        dir = nextDir;
+        // ── Consume turn queue ────────────────────────────────
+        if (turnQueue.length > 0) {
+          const candidate = turnQueue.shift()!;
+          if (!isOpposite(candidate, dir)) {
+            dir = candidate;
+          }
+        }
+        // (else dir remains the same — snake continues straight)
 
+        // ── Move snake ───────────────────────────────────────
         const head = snake[0];
         const newHead: Cell = { x: head.x, y: head.y };
         if (dir === "up") newHead.y -= 1;
@@ -423,6 +570,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         }
 
         redraw();
+        updateDialState();
+        updateQueueDisplay();
       });
 
       function triggerGameOver(): void {
