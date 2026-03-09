@@ -8,9 +8,8 @@ import {
 import { telemetry } from "../../shared/telemetry.ts";
 
 interface ResultOpts {
-  score: number;
-  bestScore: number;
-  snakeLength: number;
+  length: number;
+  bestLength: number;
   continuesUsed: number;
 }
 
@@ -18,7 +17,7 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
   k.scene("result", (opts: ResultOpts) => {
     telemetry.log("scene:result", opts as unknown as Record<string, unknown>);
 
-    const { score, bestScore, snakeLength, continuesUsed } = opts;
+    const { length, bestLength, continuesUsed } = opts;
 
     const W = k.width();
     const H = k.height();
@@ -38,7 +37,7 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
     const statSize = Math.min(W * 0.045, 22);
 
     k.add([
-      k.text(`Score: ${score}`, { size: statSize, font: "monospace" }),
+      k.text(`Length: ${length}`, { size: statSize, font: "monospace" }),
       k.color(200, 255, 200),
       k.pos(W / 2, H * 0.33),
       k.anchor("center"),
@@ -46,7 +45,7 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
     ]);
 
     k.add([
-      k.text(`Best:  ${bestScore}`, { size: statSize, font: "monospace" }),
+      k.text(`Best:   ${bestLength}`, { size: statSize, font: "monospace" }),
       k.color(200, 220, 160),
       k.pos(W / 2, H * 0.43),
       k.anchor("center"),
@@ -123,11 +122,10 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
       const result = await platform.ads.showRewarded("continue");
       if (result.rewarded) {
         platform.storage.set(KEY_LAST_REWARDED_AT, Date.now());
-        telemetry.log("result:continue:rewarded", { score, snakeLength });
-        // Respawn with same score and length
+        telemetry.log("result:continue:rewarded", { length });
+        // Respawn with same snake length
         k.go("game", {
-          score,
-          snakeLength,
+          snakeLength: length,
           continuesUsed: continuesUsed + 1,
         });
       } else {
