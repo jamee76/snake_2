@@ -1,4 +1,4 @@
-import type { KAPLAYCtx, GameObj, ColorComp, OpacityComp, AreaComp } from "kaplay";
+import type { KAPLAYCtx, GameObj, ColorComp, OpacityComp, AreaComp, TextComp } from "kaplay";
 import type { IPlatform } from "../../platform/platform.ts";
 import {
   GRID_COLS,
@@ -349,7 +349,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
             k.pos(cx, cy),
             k.anchor("center"),
             k.fixed(),
-          ]);
+          ]) as GameObj<TextComp>;
 
           return { bg, lbl };
         };
@@ -361,7 +361,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         type BtnEntry = {
           dirs: Direction[];
           bg: GameObj<ColorComp & OpacityComp & AreaComp>;
-          lbl: ReturnType<typeof k.add>;
+          lbl: GameObj<TextComp>;
           bgRgb: readonly [number, number, number];
         };
 
@@ -407,7 +407,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
         type MacroEntry = {
           bg: GameObj<ColorComp & OpacityComp & AreaComp>;
-          lbl: ReturnType<typeof k.add>;
+          lbl: GameObj<TextComp>;
           cfgMap: MacroMap;
           currentDirs: Direction[];
         };
