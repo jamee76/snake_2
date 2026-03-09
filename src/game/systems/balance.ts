@@ -66,22 +66,22 @@ export function purpleInvincibilityMs(currentStepMs: number): number {
   );
 }
 
-// ─── Dial UI (mobile circular control pad) ──────────────────────────────────
+// ─── Mobile control UI (minimalist D-pad) ───────────────────────────────────
 
-/** Fraction of screen height reserved for the dial panel on touch devices. */
-export const DIAL_CTRL_H_FRAC = 0.42;
+/** Fraction of screen height reserved for the control panel on touch devices. */
+export const CTRL_H_FRAC = 0.30;
 
-/** Fraction of the dial panel height used as the button ring radius. */
-export const DIAL_RADIUS_FRAC = 0.38;
+/** Enabled base button colour (RGB) — white. */
+export const BASE_BTN_ENABLED_COLOR = [255, 255, 255] as const;
 
-/** Enabled button colour (RGB). */
-export const DIAL_BTN_COLOR = [50, 100, 180] as const;
+/** Disabled button colour (RGB) — gray for 180° reversal buttons. */
+export const BTN_DISABLED_COLOR = [100, 100, 100] as const;
 
-/** Disabled button colour (RGB) — for 180° reversal buttons. */
-export const DIAL_BTN_DISABLED_COLOR = [70, 70, 80] as const;
+/** Enabled helper button colour (RGB) — muted blue, visually secondary. */
+export const HELPER_BTN_ENABLED_COLOR = [100, 150, 200] as const;
 
-/** Opacity for active (enabled) dial buttons. */
-export const DIAL_BTN_OPACITY_ENABLED = 0.85;
+/** Opacity for enabled buttons. */
+export const BTN_OPACITY_ENABLED = 0.9;
 
-/** Opacity for inactive (disabled) dial buttons. */
-export const DIAL_BTN_OPACITY_DISABLED = 0.4;
+/** Opacity for disabled buttons. */
+export const BTN_OPACITY_DISABLED = 0.4;
