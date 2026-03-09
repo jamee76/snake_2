@@ -65,3 +65,23 @@ export function purpleInvincibilityMs(currentStepMs: number): number {
     t * (PURPLE_INVINCIBILITY_SLOW_MS - PURPLE_INVINCIBILITY_FAST_MS)
   );
 }
+
+// ─── Dial UI (mobile circular control pad) ──────────────────────────────────
+
+/** Fraction of screen height reserved for the dial panel on touch devices. */
+export const DIAL_CTRL_H_FRAC = 0.42;
+
+/** Fraction of the dial panel height used as the button ring radius. */
+export const DIAL_RADIUS_FRAC = 0.38;
+
+/** Enabled button colour (RGB). */
+export const DIAL_BTN_COLOR = [50, 100, 180] as const;
+
+/** Disabled button colour (RGB) — for 180° reversal buttons. */
+export const DIAL_BTN_DISABLED_COLOR = [70, 70, 80] as const;
+
+/** Opacity for active (enabled) dial buttons. */
+export const DIAL_BTN_OPACITY_ENABLED = 0.85;
+
+/** Opacity for inactive (disabled) dial buttons. */
+export const DIAL_BTN_OPACITY_DISABLED = 0.4;
