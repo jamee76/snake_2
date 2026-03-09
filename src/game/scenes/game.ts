@@ -3,22 +3,17 @@ import type { IPlatform } from "../../platform/platform.ts";
 import {
   GRID_COLS,
   GRID_ROWS,
-  BASE_SCORE_PER_FOOD,
   BASE_STEP_MS,
   SNAKE_START_LENGTH,
-  stepMsFromScore,
-  KEY_BEST_SCORE,
+  stepMsFromLength,
+  KEY_BEST_LENGTH,
   INTERSTITIAL_EVERY_N_DEATHS,
-  MIN_STEP_MS,
   PURPLE_LIFETIME_MS,
   PURPLE_COOLDOWN_MS,
-  PURPLE_SPEED_BOOST,
   PURPLE_BLINK_MS,
   PURPLE_BLINK_PERIOD_MS,
   COLOR_PURPLE,
   COLOR_HEAD_NORMAL,
-  COLOR_GOLD,
-  GOLD_CHAIN_TIMEOUT_MS,
   purpleSpawnChance,
   purpleInvincibilityMs,
 } from "../systems/balance.ts";
@@ -39,7 +34,6 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
   k.scene(
     "game",
     (opts?: {
-      score?: number;
       snakeLength?: number;
       continuesUsed?: number;
     }) => {
@@ -49,8 +43,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const W = k.width();
       const H = k.height();
 
-      // Reserve bottom area for controls (2 button rows → needs more space)
-      const CTRL_H = Math.max(H * 0.30, 130);
+      // No on-screen controls — full height for gameplay
+      const CTRL_H = 0;
       const GAME_H = H - CTRL_H;
 
       // Cell size that fits the grid inside the game area
@@ -65,9 +59,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const gridY = Math.floor((GAME_H - gridH) / 2);
 
       // ─── State ───────────────────────────────────────────────
-      let score = opts?.score ?? 0;
       const continuesUsed = opts?.continuesUsed ?? 0;
-      let bestScore = platform.storage.get<number>(KEY_BEST_SCORE) ?? 0;
+      let bestLength = platform.storage.get<number>(KEY_BEST_LENGTH) ?? 0;
 
       // Build initial snake
       const startCol = Math.floor(GRID_COLS / 2);
@@ -84,10 +77,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       let gameOver = false;
 
       // ─── Food ────────────────────────────────────────────────
-      let food: Cell = spawnFood(snake, null, null);
+      let food: Cell = spawnFood(snake, null);
       let foodEaten = 0;
-
-      // ─── Purple dot ──────────────────────────────────────────
       let purpleFood: Cell | null = null;
       let purpleLifetimeMs = 0;
       let purpleCooldownMs = 0;      // cooldown after picking up purple
@@ -98,12 +89,6 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       let invincibleTimeMs = 0;
       let maxInvincibleMs = purpleInvincibilityMs(BASE_STEP_MS); // for bar fraction
       let blinkAccum = 0;
-
-      // ─── Gold apple / score multiplier ───────────────────────
-      let goldFood: Cell | null = spawnGoldFood(snake, food, null);
-      let goldChainCount = 0;
-      let scoreMultiplier = 1;
-      let goldChainRemainingMs = 0;
 
       // ─── Background ──────────────────────────────────────────
       k.add([k.rect(W, H), k.color(15, 20, 30), k.pos(0, 0), k.fixed()]);
@@ -125,21 +110,14 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       // ─── HUD ─────────────────────────────────────────────────
       const hudSize = Math.min(W * 0.04, 18);
 
-      const scoreLabel = k.add([
-        k.text(`Score: ${score}`, { size: hudSize, font: "monospace" }),
+      const lengthLabel = k.add([
+        k.text(`Length: ${snake.length}`, { size: hudSize, font: "monospace" }),
         k.color(200, 255, 200),
         k.pos(8, 4),
         k.fixed(),
       ]);
-      const multiLabel = k.add([
-        k.text(`MULTI: x${scoreMultiplier}`, { size: hudSize, font: "monospace" }),
-        k.color(...COLOR_GOLD),
-        k.pos(W / 2, 4),
-        k.anchor("top"),
-        k.fixed(),
-      ]);
       const bestLabel = k.add([
-        k.text(`Best: ${bestScore}`, { size: hudSize, font: "monospace" }),
+        k.text(`Best: ${bestLength}`, { size: hudSize, font: "monospace" }),
         k.color(200, 220, 160),
         k.pos(W - 8, 4),
         k.anchor("topright"),
@@ -151,7 +129,6 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const barX = 8;
       const barW = W - 16;
       const invBarY = Math.floor(hudSize + 14);
-      const goldBarY = invBarY + barH + 4;
       const barTextSize = Math.max(8, Math.floor(hudSize * 0.65));
 
       // Invincibility bar (purple)
@@ -177,83 +154,31 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       invBarFill.hidden = true;
       invBarText.hidden = true;
 
-      // Gold chain bar
-      const goldBarBg = k.add([
-        k.rect(barW, barH),
-        k.color(40, 30, 0),
-        k.pos(barX, goldBarY),
-        k.fixed(),
-      ]);
-      const goldBarFill = k.add([
-        k.rect(barW, barH),
-        k.color(...COLOR_GOLD),
-        k.pos(barX, goldBarY),
-        k.fixed(),
-      ]);
-      const goldBarText = k.add([
-        k.text("", { size: barTextSize, font: "monospace" }),
-        k.color(255, 220, 50),
-        k.pos(barX + 2, goldBarY + 1),
-        k.fixed(),
-      ]);
-      goldBarBg.hidden = true;
-      goldBarFill.hidden = true;
-      goldBarText.hidden = true;
+      // ─── Touch swipe controls (mobile) ───────────────────────
+      const SWIPE_MIN_DIST_PX = 30;
+      let touchStartX = 0;
+      let touchStartY = 0;
 
-      // ─── Control buttons (3-column layout) ──────────────────────────────
-      // ┌────────┐ ┌────────┐ ┌────────┐
-      // │        │ │   ▲    │ │        │
-      // │   ◄    │ ├────────┤ │   ►    │   ← Left & Right span both rows
-      // │        │ │   ▼    │ │        │
-      // └────────┘ └────────┘ └────────┘
-      const btnAreaY = H - CTRL_H;
-      const btnSize = Math.min(
-        Math.floor((CTRL_H - 24) / 2) - 4,   // fit 2 rows with padding
-        Math.floor(W / 5)                      // don't overflow horizontally
-      );
-      const btnGap = Math.max(4, Math.floor(btnSize * 0.12));
-      const totalBtnsW = btnSize * 3 + btnGap * 2;
-      const totalBtnsH = btnSize * 2 + btnGap;
-      const btnStartX = Math.floor((W - totalBtnsW) / 2);
-      const btnStartY = Math.floor(btnAreaY + (CTRL_H - totalBtnsH) / 2);
+      k.onTouchStart((pos) => {
+        touchStartX = pos.x;
+        touchStartY = pos.y;
+      });
 
-      // tall: true means the button spans both rows (height = btnSize*2 + btnGap)
-      const dirButtons: { dir: Direction; label: string; col: number; row: number; tall?: boolean }[] = [
-        { dir: "left",  label: "◄", col: 0, row: 0, tall: true },
-        { dir: "up",    label: "▲", col: 1, row: 0 },
-        { dir: "down",  label: "▼", col: 1, row: 1 },
-        { dir: "right", label: "►", col: 2, row: 0, tall: true },
-      ];
+      k.onTouchEnd((pos) => {
+        if (gameOver) return;
+        const dx = pos.x - touchStartX;
+        const dy = pos.y - touchStartY;
+        const adx = Math.abs(dx);
+        const ady = Math.abs(dy);
+        if (Math.max(adx, ady) < SWIPE_MIN_DIST_PX) return;
+        if (adx > ady) {
+          applyDir(dx > 0 ? "right" : "left");
+        } else {
+          applyDir(dy > 0 ? "down" : "up");
+        }
+      });
 
-      for (const btn of dirButtons) {
-        const bx = btnStartX + btn.col * (btnSize + btnGap);
-        const by = btnStartY + btn.row * (btnSize + btnGap);
-        const bh = btn.tall ? btnSize * 2 + btnGap : btnSize;
-
-        const bg = k.add([
-          k.rect(btnSize, bh, { radius: 8 }),
-          k.color(40, 80, 40),
-          k.pos(bx, by),
-          k.fixed(),
-          k.area(),
-          { btnDir: btn.dir },
-        ]);
-
-        k.add([
-          k.text(btn.label, { size: btnSize * 0.45, font: "monospace" }),
-          k.color(180, 255, 180),
-          k.pos(bx + btnSize / 2, by + bh / 2),
-          k.anchor("center"),
-          k.fixed(),
-        ]);
-
-        // Works for both mouse click and touch tap
-        bg.onClick(() => {
-          if (!gameOver) applyDir(btn.dir);
-        });
-      }
-
-      // ─── Also handle keyboard (desktop) ──────────────────────
+      // ─── Keyboard controls (desktop) ─────────────────────────
       k.onKeyPress("up", () => applyDir("up"));
       k.onKeyPress("down", () => applyDir("down"));
       k.onKeyPress("left", () => applyDir("left"));
@@ -285,7 +210,6 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const snakeObjs: ReturnType<typeof k.add>[] = [];
       let foodObj: ReturnType<typeof k.add> | null = null;
       let purpleFoodObj: ReturnType<typeof k.add> | null = null;
-      let goldFoodObj: ReturnType<typeof k.add> | null = null;
       // Head is kept separate so its color can be updated between steps (blink)
       let headObj: GameObj<ColorComp> | null = null;
 
@@ -345,19 +269,6 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
             k.fixed(),
           ]);
         }
-
-        // Gold apple
-        if (goldFoodObj) goldFoodObj.destroy();
-        goldFoodObj = null;
-        if (goldFood) {
-          const gp = cellToWorld(goldFood);
-          goldFoodObj = k.add([
-            k.rect(cellSize - pad * 2, cellSize - pad * 2),
-            k.color(...COLOR_GOLD),
-            k.pos(gp.x + pad, gp.y + pad),
-            k.fixed(),
-          ]);
-        }
       }
 
       redraw();
@@ -380,17 +291,6 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         // ── Purple cooldown (after picking up purple) ─────────
         if (purpleCooldownMs > 0) {
           purpleCooldownMs -= dt;
-        }
-
-        // ── Gold chain timer ──────────────────────────────────
-        if (goldChainCount > 0) {
-          goldChainRemainingMs -= dt;
-          if (goldChainRemainingMs <= 0) {
-            goldChainCount = 0;
-            scoreMultiplier = 1;
-            goldChainRemainingMs = 0;
-            multiLabel.text = `MULTI: x${scoreMultiplier}`;
-          }
         }
 
         // ── Invincibility timer ───────────────────────────────
@@ -427,24 +327,10 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           invBarFill.hidden = true;
           invBarText.hidden = true;
         }
-        if (goldChainCount > 0 && goldChainRemainingMs > 0) {
-          goldBarBg.hidden = false;
-          goldBarFill.hidden = false;
-          goldBarText.hidden = false;
-          goldBarFill.width = Math.max(0, barW * (goldChainRemainingMs / GOLD_CHAIN_TIMEOUT_MS));
-          goldBarText.text = `Chain: x${scoreMultiplier} (${(goldChainRemainingMs / 1000).toFixed(1)}s)`;
-        } else {
-          goldBarBg.hidden = true;
-          goldBarFill.hidden = true;
-          goldBarText.hidden = true;
-        }
 
-        // ── Step accumulator (speed boosted while invincible) ─
+        // ── Step accumulator ─────────────────────────────────
         stepAccum += dt;
-        const baseStepMs = stepMsFromScore(score);
-        const effectiveStepMs = invincible
-          ? Math.max(MIN_STEP_MS, Math.round(baseStepMs / PURPLE_SPEED_BOOST))
-          : baseStepMs;
+        const effectiveStepMs = stepMsFromLength(snake.length);
 
         if (stepAccum < effectiveStepMs) return;
         stepAccum -= effectiveStepMs;
@@ -459,15 +345,20 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         else if (dir === "left") newHead.x -= 1;
         else newHead.x += 1;
 
-        // Wall collision — always lethal, even while invincible
+        // Wall collision — lethal when not invincible; wrap around when invincible
         if (
           newHead.x < 0 ||
           newHead.x >= GRID_COLS ||
           newHead.y < 0 ||
           newHead.y >= GRID_ROWS
         ) {
-          triggerGameOver();
-          return;
+          if (invincible) {
+            newHead.x = ((newHead.x % GRID_COLS) + GRID_COLS) % GRID_COLS;
+            newHead.y = ((newHead.y % GRID_ROWS) + GRID_ROWS) % GRID_ROWS;
+          } else {
+            triggerGameOver();
+            return;
+          }
         }
 
         const eatFood =
@@ -478,15 +369,10 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           newHead.x === purpleFood.x &&
           newHead.y === purpleFood.y;
 
-        const eatGold =
-          goldFood !== null &&
-          newHead.x === goldFood.x &&
-          newHead.y === goldFood.y;
-
         // Eating the purple dot grants invincibility before the self-collision
         // check, so the snake can immediately pass through its tail this step.
         if (eatPurple) {
-          const stepMs = stepMsFromScore(score);
+          const stepMs = stepMsFromLength(snake.length);
           maxInvincibleMs = purpleInvincibilityMs(stepMs);
           invincibleTimeMs = maxInvincibleMs;
           invincible = true;
@@ -495,12 +381,12 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           if (purpleFoodObj) { purpleFoodObj.destroy(); purpleFoodObj = null; }
           // Start cooldown — next purple can't spawn for PURPLE_COOLDOWN_MS
           purpleCooldownMs = PURPLE_COOLDOWN_MS;
-          telemetry.log("game:purple", { score });
+          telemetry.log("game:purple", { length: snake.length });
         }
 
         // Self collision — skipped while invincible
         if (!invincible) {
-          const bodyToCheck = (eatFood || eatGold)
+          const bodyToCheck = eatFood
             ? snake
             : snake.slice(0, snake.length - 1);
           if (bodyToCheck.some((c) => c.x === newHead.x && c.y === newHead.y)) {
@@ -513,41 +399,24 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         if (eatFood) {
           foodEaten += 1;
           purpleFoodEatenSinceSpawn += 1;
-          score += BASE_SCORE_PER_FOOD * scoreMultiplier;
           snake = [newHead, ...snake];
-          food = spawnFood(snake, purpleFood, goldFood);
-          if (score > bestScore) {
-            bestScore = score;
-            platform.storage.set(KEY_BEST_SCORE, bestScore);
+          food = spawnFood(snake, purpleFood);
+          if (snake.length > bestLength) {
+            bestLength = snake.length;
+            platform.storage.set(KEY_BEST_LENGTH, bestLength);
           }
-          scoreLabel.text = `Score: ${score}`;
-          bestLabel.text = `Best: ${bestScore}`;
-          telemetry.log("game:eat", { score });
+          lengthLabel.text = `Length: ${snake.length}`;
+          bestLabel.text = `Best: ${bestLength}`;
+          telemetry.log("game:eat", { length: snake.length });
 
           // Possibly spawn a purple dot (only if no cooldown and no active purple)
           if (!purpleFood && purpleCooldownMs <= 0 && rng.next() < purpleSpawnChance(purpleFoodEatenSinceSpawn)) {
-            purpleFood = spawnPurpleFood(snake, food, goldFood);
+            purpleFood = spawnPurpleFood(snake, food);
             if (purpleFood) {
               purpleLifetimeMs = PURPLE_LIFETIME_MS;
               purpleFoodEatenSinceSpawn = 0; // Reset chance when purple spawns
             }
           }
-        } else if (eatGold) {
-          // Gold apple: doubles multiplier, grows snake, instant respawn
-          goldChainCount += 1;
-          scoreMultiplier *= 2;
-          goldChainRemainingMs = GOLD_CHAIN_TIMEOUT_MS;
-          score += BASE_SCORE_PER_FOOD * scoreMultiplier;
-          snake = [newHead, ...snake];
-          goldFood = spawnGoldFood(snake, food, purpleFood);
-          if (score > bestScore) {
-            bestScore = score;
-            platform.storage.set(KEY_BEST_SCORE, bestScore);
-          }
-          scoreLabel.text = `Score: ${score}`;
-          bestLabel.text = `Best: ${bestScore}`;
-          multiLabel.text = `MULTI: x${scoreMultiplier}`;
-          telemetry.log("game:gold", { score, goldChainCount, scoreMultiplier });
         } else {
           // Move: add new head, remove tail
           snake = [newHead, ...snake.slice(0, snake.length - 1)];
@@ -561,13 +430,13 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         gameOver = true;
         deathCount += 1;
 
-        // Update best score
-        if (score > bestScore) {
-          bestScore = score;
-          platform.storage.set(KEY_BEST_SCORE, bestScore);
+        // Update best length
+        if (snake.length > bestLength) {
+          bestLength = snake.length;
+          platform.storage.set(KEY_BEST_LENGTH, bestLength);
         }
 
-        telemetry.log("game:over", { score, deathCount });
+        telemetry.log("game:over", { length: snake.length, deathCount });
 
         // Show interstitial every N deaths
         const shouldShowInterstitial =
@@ -575,9 +444,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
         const goToResult = () => {
           k.go("result", {
-            score,
-            bestScore,
-            snakeLength: snake.length,
+            length: snake.length,
+            bestLength,
             continuesUsed,
           });
         };
@@ -595,11 +463,10 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-/** Spawn regular food avoiding the snake body, an optional purple dot, and optional gold apple. */
-function spawnFood(snake: Cell[], purpleFood: Cell | null, goldFood: Cell | null): Cell {
+/** Spawn regular food avoiding the snake body and an optional purple dot. */
+function spawnFood(snake: Cell[], purpleFood: Cell | null): Cell {
   const occupied = new Set(snake.map((c) => `${c.x},${c.y}`));
   if (purpleFood) occupied.add(`${purpleFood.x},${purpleFood.y}`);
-  if (goldFood) occupied.add(`${goldFood.x},${goldFood.y}`);
   const free: Cell[] = [];
   for (let y = 0; y < GRID_ROWS; y++) {
     for (let x = 0; x < GRID_COLS; x++) {
@@ -610,26 +477,10 @@ function spawnFood(snake: Cell[], purpleFood: Cell | null, goldFood: Cell | null
   return free[rng.int(free.length)];
 }
 
-/** Spawn purple dot avoiding the snake body, the regular food cell, and optional gold apple. */
-function spawnPurpleFood(snake: Cell[], regularFood: Cell, goldFood: Cell | null): Cell | null {
+/** Spawn purple dot avoiding the snake body and the regular food cell. */
+function spawnPurpleFood(snake: Cell[], regularFood: Cell): Cell | null {
   const occupied = new Set(snake.map((c) => `${c.x},${c.y}`));
   occupied.add(`${regularFood.x},${regularFood.y}`);
-  if (goldFood) occupied.add(`${goldFood.x},${goldFood.y}`);
-  const free: Cell[] = [];
-  for (let y = 0; y < GRID_ROWS; y++) {
-    for (let x = 0; x < GRID_COLS; x++) {
-      if (!occupied.has(`${x},${y}`)) free.push({ x, y });
-    }
-  }
-  if (free.length === 0) return null;
-  return free[rng.int(free.length)];
-}
-
-/** Spawn gold apple avoiding the snake body, regular food, and optional purple dot. */
-function spawnGoldFood(snake: Cell[], regularFood: Cell, purpleFood: Cell | null): Cell | null {
-  const occupied = new Set(snake.map((c) => `${c.x},${c.y}`));
-  occupied.add(`${regularFood.x},${regularFood.y}`);
-  if (purpleFood) occupied.add(`${purpleFood.x},${purpleFood.y}`);
   const free: Cell[] = [];
   for (let y = 0; y < GRID_ROWS; y++) {
     for (let x = 0; x < GRID_COLS; x++) {
