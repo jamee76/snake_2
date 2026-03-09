@@ -294,76 +294,70 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       // ─── Mobile UI state callbacks (populated for touch devices) ──
       let updateDialState = () => {};
 
-      // ─── Minimalist D-pad UI (touch devices only) ─────────────────
+      // ─── 3×3 Grid UI (touch devices only) ─────────────────────────
       if (isTouch) {
+        const DARK_TXT  = [20,  20,  20 ] as const;
+        const LIGHT_TXT = [230, 240, 255] as const;
+
         // ── Sizing ──────────────────────────────────────────────────
-        const baseSz    = Math.max(40, Math.min(54, Math.floor(CTRL_H * 0.23)));
-        const helpSz    = Math.max(20, Math.floor(baseSz / 2));
-        const gap       = Math.max(4,  Math.floor(baseSz * 0.12));
-        const step      = baseSz + gap;
-        const baseLblSz = Math.max(14, Math.floor(baseSz * 0.45));
-        const helpLblSz = Math.max(9,  Math.floor(helpSz * 0.55));
+        const cellSz = Math.max(40, Math.floor(Math.min(W / 3, CTRL_H / 3) * 0.90));
+        const gap    = Math.max(3, Math.floor(cellSz * 0.07));
+        const lblSz  = Math.max(11, Math.floor(cellSz * 0.36));
+        const step   = cellSz + gap;
 
-        const dpadCX = Math.floor(W / 2);
-        const dpadCY = Math.floor(GAME_H + CTRL_H / 2);
+        const gridCX = Math.floor(W / 2);
+        const gridCY = Math.floor(GAME_H + CTRL_H / 2);
 
-        // Base button centres
-        const upCX = dpadCX,        upCY = dpadCY - step;
-        const dnCX = dpadCX,        dnCY = dpadCY + step;
-        const ltCX = dpadCX - step, ltCY = dpadCY;
-        const rtCX = dpadCX + step, rtCY = dpadCY;
+        // Column and row centres for the 3×3 grid
+        const colX = [gridCX - step, gridCX, gridCX + step];
+        const rowY = [gridCY - step, gridCY, gridCY + step];
 
-        // Anchor positions for helper button columns/rows
-        const hRightX = Math.floor(rtCX + baseSz / 2 + gap + helpSz / 2);
-        const hLeftX  = Math.floor(ltCX - baseSz / 2 - gap - helpSz / 2);
-        const hDownY  = Math.floor(dnCY + baseSz / 2 + gap + helpSz / 2);
-        const hUpY    = Math.floor(upCY - baseSz / 2 - gap - helpSz / 2);
-        const hOff    = Math.floor((helpSz + gap) / 2);
+        // Numpad position (1–9) → pixel centre
+        // 1 2 3   →  col0,row0  col1,row0  col2,row0
+        // 4 5 6   →  col0,row1  col1,row1  col2,row1
+        // 7 8 9   →  col0,row2  col1,row2  col2,row2
+        const numpadCX = (n: number) => colX[(n - 1) % 3];
+        const numpadCY = (n: number) => rowY[Math.floor((n - 1) / 3)];
 
         // ── Panel background ─────────────────────────────────────────
         k.add([k.rect(W, CTRL_H), k.color(10, 15, 25), k.pos(0, GAME_H), k.fixed()]);
 
-        // ── Button factory ───────────────────────────────────────────
-        const mkBtn = (
-          cx: number, cy: number, sz: number,
-          label: string, lSz: number,
+        // ── Cell factory ─────────────────────────────────────────────
+        const mkCell = (
+          n: number,
+          label: string,
           bgRgb: readonly [number, number, number],
           txtRgb: readonly [number, number, number],
-          dirs: Direction[],
+          startDisabled: boolean,
         ) => {
-          const [r, g, b] = bgRgb;
+          const cx = numpadCX(n);
+          const cy = numpadCY(n);
+          const [r, g, b] = startDisabled ? BTN_DISABLED_COLOR : bgRgb;
           const bg = k.add([
-            k.rect(sz, sz, { radius: Math.floor(sz * 0.2) }),
+            k.rect(cellSz, cellSz, { radius: Math.floor(cellSz * 0.15) }),
             k.color(r, g, b),
-            k.opacity(BTN_OPACITY_ENABLED),
+            k.opacity(startDisabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED),
             k.area(),
-            k.pos(cx - sz / 2, cy - sz / 2),
+            k.pos(cx - cellSz / 2, cy - cellSz / 2),
             k.fixed(),
           ]) as GameObj<ColorComp & OpacityComp & AreaComp>;
 
           const [tr, tg, tb] = txtRgb;
           const lbl = k.add([
-            k.text(label, { size: lSz, font: "monospace" }),
+            k.text(label, { size: lblSz, font: "monospace" }),
             k.color(tr, tg, tb),
             k.pos(cx, cy),
             k.anchor("center"),
             k.fixed(),
           ]);
 
-          const btnDirs = dirs;
-          bg.onClick(() => {
-            if (gameOver) return;
-            if (isOpposite(btnDirs[0], dir)) return;
-            turnQueue = [...btnDirs];
-          });
-
-          return { bg, lbl, bgRgb };
+          return { bg, lbl };
         };
 
-        // ── 4 Base buttons (always visible, 2× size, white) ─────────
-        const DARK_TXT  = [20,  20,  20 ] as const;
-        const LIGHT_TXT = [230, 240, 255] as const;
+        // ── Center (5) — always disabled, no action ─────────────────
+        mkCell(5, "", BTN_DISABLED_COLOR, DARK_TXT, true);
 
+        // ── Base direction buttons (2, 4, 6, 8) ─────────────────────
         type BtnEntry = {
           dirs: Direction[];
           bg: GameObj<ColorComp & OpacityComp & AreaComp>;
@@ -372,42 +366,64 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         };
 
         const baseBtns: BtnEntry[] = [
-          { dirs: ["up"],    ...mkBtn(upCX, upCY, baseSz, "↑", baseLblSz, BASE_BTN_ENABLED_COLOR, DARK_TXT, ["up"])    },
-          { dirs: ["down"],  ...mkBtn(dnCX, dnCY, baseSz, "↓", baseLblSz, BASE_BTN_ENABLED_COLOR, DARK_TXT, ["down"])  },
-          { dirs: ["left"],  ...mkBtn(ltCX, ltCY, baseSz, "←", baseLblSz, BASE_BTN_ENABLED_COLOR, DARK_TXT, ["left"])  },
-          { dirs: ["right"], ...mkBtn(rtCX, rtCY, baseSz, "→", baseLblSz, BASE_BTN_ENABLED_COLOR, DARK_TXT, ["right"]) },
+          { dirs: ["up"],    bgRgb: BASE_BTN_ENABLED_COLOR, ...mkCell(2, "↑", BASE_BTN_ENABLED_COLOR, DARK_TXT, false) },
+          { dirs: ["left"],  bgRgb: BASE_BTN_ENABLED_COLOR, ...mkCell(4, "←", BASE_BTN_ENABLED_COLOR, DARK_TXT, false) },
+          { dirs: ["right"], bgRgb: BASE_BTN_ENABLED_COLOR, ...mkCell(6, "→", BASE_BTN_ENABLED_COLOR, DARK_TXT, false) },
+          { dirs: ["down"],  bgRgb: BASE_BTN_ENABLED_COLOR, ...mkCell(8, "↓", BASE_BTN_ENABLED_COLOR, DARK_TXT, false) },
         ];
 
-        // ── Helper buttons (2 visible at a time, 1× size) ────────────
-        // 2 per direction = 8 total; only the pair matching current dir is shown.
-        const helperDefs: Array<{
-          forDir: Direction; cx: number; cy: number;
-          label: string; dirs: Direction[];
-        }> = [
-          // dir === "left"  → helpers near the Right button
-          { forDir: "left",  cx: hRightX,       cy: dpadCY - hOff, label: "↑→", dirs: ["up",    "right"] },
-          { forDir: "left",  cx: hRightX,       cy: dpadCY + hOff, label: "↓→", dirs: ["down",  "right"] },
-          // dir === "right" → helpers near the Left button
-          { forDir: "right", cx: hLeftX,        cy: dpadCY - hOff, label: "↑←", dirs: ["up",    "left"]  },
-          { forDir: "right", cx: hLeftX,        cy: dpadCY + hOff, label: "↓←", dirs: ["down",  "left"]  },
-          // dir === "up"    → helpers below the Down button
-          { forDir: "up",    cx: dpadCX - hOff, cy: hDownY,        label: "←↓", dirs: ["left",  "down"]  },
-          { forDir: "up",    cx: dpadCX + hOff, cy: hDownY,        label: "→↓", dirs: ["right", "down"]  },
-          // dir === "down"  → helpers above the Up button
-          { forDir: "down",  cx: dpadCX - hOff, cy: hUpY,          label: "←↑", dirs: ["left",  "up"]    },
-          { forDir: "down",  cx: dpadCX + hOff, cy: hUpY,          label: "→↑", dirs: ["right", "up"]    },
-        ];
+        for (const btn of baseBtns) {
+          btn.bg.onClick(() => {
+            if (gameOver) return;
+            if (isOpposite(btn.dirs[0], dir)) return;
+            turnQueue = [...btn.dirs];
+          });
+        }
 
-        type HelpEntry = BtnEntry & { forDir: Direction };
-        const helpBtns: HelpEntry[] = [];
-        for (const e of helperDefs) {
-          const { bg, lbl, bgRgb } = mkBtn(
-            e.cx, e.cy, helpSz, e.label, helpLblSz,
-            HELPER_BTN_ENABLED_COLOR, LIGHT_TXT, e.dirs,
-          );
-          bg.hidden  = true;
-          lbl.hidden = true;
-          helpBtns.push({ forDir: e.forDir, dirs: e.dirs, bg, lbl, bgRgb });
+        // ── Macro corner buttons (1, 3, 7, 9) ───────────────────────
+        // Each corner has a different label/action per current direction.
+        // When not applicable for the current dir the button is disabled.
+        type MacroCfg = { label: string; dirs: Direction[] };
+        type MacroMap = Partial<Record<Direction, MacroCfg>>;
+
+        const MACRO_CORNER_CONFIG: Record<number, MacroMap> = {
+          1: {
+            right: { label: "↑←", dirs: ["up",    "left"]  },
+            down:  { label: "←↑", dirs: ["left",  "up"]    },
+          },
+          3: {
+            left:  { label: "↑→", dirs: ["up",    "right"] },
+            down:  { label: "→↑", dirs: ["right", "up"]    },
+          },
+          7: {
+            right: { label: "↓←", dirs: ["down",  "left"]  },
+            up:    { label: "←↓", dirs: ["left",  "down"]  },
+          },
+          9: {
+            left:  { label: "↓→", dirs: ["down",  "right"] },
+            up:    { label: "→↓", dirs: ["right", "down"]  },
+          },
+        };
+
+        type MacroEntry = {
+          bg: GameObj<ColorComp & OpacityComp & AreaComp>;
+          lbl: ReturnType<typeof k.add>;
+          cfgMap: MacroMap;
+          currentDirs: Direction[];
+        };
+
+        const macroEntries: MacroEntry[] = [];
+        for (const [nStr, cfgMap] of Object.entries(MACRO_CORNER_CONFIG)) {
+          const n = parseInt(nStr);
+          // Start with an empty label; updateDialState() sets the correct one immediately
+          const { bg, lbl } = mkCell(n, "", HELPER_BTN_ENABLED_COLOR, LIGHT_TXT, true);
+          const entry: MacroEntry = { bg, lbl, cfgMap, currentDirs: [] };
+          bg.onClick(() => {
+            if (gameOver) return;
+            if (entry.currentDirs.length === 0) return;
+            turnQueue = [...entry.currentDirs];
+          });
+          macroEntries.push(entry);
         }
 
         // ── State updater ─────────────────────────────────────────────
@@ -424,18 +440,22 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         };
 
         updateDialState = () => {
-          // Base buttons: gray + dim when the press would be a 180° reversal
+          // Base buttons: disabled if the press would be a 180° reversal
           for (const btn of baseBtns) {
             applyBtnStyle(btn.bg, isOpposite(btn.dirs[0], dir), btn.bgRgb);
           }
 
-          // Helper buttons: show only the 2 matching current dir
-          for (const hBtn of helpBtns) {
-            const show = hBtn.forDir === dir;
-            hBtn.bg.hidden  = !show;
-            hBtn.lbl.hidden = !show;
-            if (show) {
-              applyBtnStyle(hBtn.bg, isOpposite(hBtn.dirs[0], dir), HELPER_BTN_ENABLED_COLOR);
+          // Macro buttons: enabled only for specific current dirs
+          for (const entry of macroEntries) {
+            const cfg = entry.cfgMap[dir];
+            if (cfg) {
+              entry.currentDirs = cfg.dirs;
+              entry.lbl.text = cfg.label;
+              applyBtnStyle(entry.bg, false, HELPER_BTN_ENABLED_COLOR);
+            } else {
+              entry.currentDirs = [];
+              entry.lbl.text = Object.values(entry.cfgMap)[0]?.label ?? "";
+              applyBtnStyle(entry.bg, true, HELPER_BTN_ENABLED_COLOR);
             }
           }
         };
