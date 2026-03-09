@@ -16,12 +16,12 @@ import {
   COLOR_HEAD_NORMAL,
   purpleSpawnChance,
   purpleInvincibilityMs,
-  DIAL_CTRL_H_FRAC,
-  DIAL_RADIUS_FRAC,
-  DIAL_BTN_COLOR,
-  DIAL_BTN_DISABLED_COLOR,
-  DIAL_BTN_OPACITY_ENABLED,
-  DIAL_BTN_OPACITY_DISABLED,
+  CTRL_H_FRAC,
+  BASE_BTN_ENABLED_COLOR,
+  BTN_DISABLED_COLOR,
+  HELPER_BTN_ENABLED_COLOR,
+  BTN_OPACITY_ENABLED,
+  BTN_OPACITY_DISABLED,
 } from "../systems/balance.ts";
 import { rng } from "../../shared/rng.ts";
 import { telemetry } from "../../shared/telemetry.ts";
@@ -53,8 +53,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const W = k.width();
       const H = k.height();
 
-      // Reserve bottom area for the dial on touch devices
-      const CTRL_H = isTouch ? Math.floor(H * DIAL_CTRL_H_FRAC) : 0;
+      // Reserve bottom area for the controls on touch devices
+      const CTRL_H = isTouch ? Math.floor(H * CTRL_H_FRAC) : 0;
       const GAME_H = H - CTRL_H;
 
       // Cell size that fits the grid inside the game area
@@ -291,127 +291,159 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
       redraw();
 
-      // ─── Dial UI state callbacks (populated for touch devices) ──
+      // ─── Mobile UI state callbacks (populated for touch devices) ──
       let updateDialState = () => {};
-      let updateQueueDisplay = () => {};
 
-      // ─── Dial UI (touch devices only) ────────────────────────────
+      // ─── Minimalist D-pad UI (touch devices only) ─────────────────
       if (isTouch) {
-        const DIAL_BTNS: Array<{ label: string; dirs: Direction[] }> = [
-          { label: "↑",  dirs: ["up"] },
-          { label: "↑→", dirs: ["up", "right"] },
-          { label: "→↑", dirs: ["right", "up"] },
-          { label: "→",  dirs: ["right"] },
-          { label: "→↓", dirs: ["right", "down"] },
-          { label: "↓→", dirs: ["down", "right"] },
-          { label: "↓",  dirs: ["down"] },
-          { label: "↓←", dirs: ["down", "left"] },
-          { label: "←↓", dirs: ["left", "down"] },
-          { label: "←",  dirs: ["left"] },
-          { label: "←↑", dirs: ["left", "up"] },
-          { label: "↑←", dirs: ["up", "left"] },
-        ];
+        // ── Sizing ──────────────────────────────────────────────────
+        const baseSz    = Math.max(40, Math.min(54, Math.floor(CTRL_H * 0.23)));
+        const helpSz    = Math.max(20, Math.floor(baseSz / 2));
+        const gap       = Math.max(4,  Math.floor(baseSz * 0.12));
+        const step      = baseSz + gap;
+        const baseLblSz = Math.max(14, Math.floor(baseSz * 0.45));
+        const helpLblSz = Math.max(9,  Math.floor(helpSz * 0.55));
 
-        const dialRadius = Math.min(CTRL_H * DIAL_RADIUS_FRAC, W * 0.42);
-        const btnSize = Math.max(28, Math.min(44, dialRadius * 0.32));
-        const labelSize = Math.max(10, Math.floor(btnSize * 0.5));
-        const dialCX = W / 2;
-        const dialCY = GAME_H + CTRL_H / 2;
+        const dpadCX = Math.floor(W / 2);
+        const dpadCY = Math.floor(GAME_H + CTRL_H / 2);
 
-        // Panel background
-        k.add([
-          k.rect(W, CTRL_H),
-          k.color(10, 15, 25),
-          k.pos(0, GAME_H),
-          k.fixed(),
-        ]);
+        // Base button centres
+        const upCX = dpadCX,        upCY = dpadCY - step;
+        const dnCX = dpadCX,        dnCY = dpadCY + step;
+        const ltCX = dpadCX - step, ltCY = dpadCY;
+        const rtCX = dpadCX + step, rtCY = dpadCY;
 
-        // Queue indicator
-        const queueLbl = k.add([
-          k.text("Queue: —", {
-            size: Math.max(10, Math.floor(hudSize * 0.85)),
-            font: "monospace",
-          }),
-          k.color(180, 220, 180),
-          k.pos(W / 2, GAME_H + 6),
-          k.anchor("top"),
-          k.fixed(),
-        ]);
+        // Anchor positions for helper button columns/rows
+        const hRightX = Math.floor(rtCX + baseSz / 2 + gap + helpSz / 2);
+        const hLeftX  = Math.floor(ltCX - baseSz / 2 - gap - helpSz / 2);
+        const hDownY  = Math.floor(dnCY + baseSz / 2 + gap + helpSz / 2);
+        const hUpY    = Math.floor(upCY - baseSz / 2 - gap - helpSz / 2);
+        const hOff    = Math.floor((helpSz + gap) / 2);
 
-        // Arrow symbols for queue display
-        const arrowOf: Record<Direction, string> = {
-          up: "↑", down: "↓", left: "←", right: "→",
-        };
+        // ── Panel background ─────────────────────────────────────────
+        k.add([k.rect(W, CTRL_H), k.color(10, 15, 25), k.pos(0, GAME_H), k.fixed()]);
 
-        // Build button objects
-        type BtnObj = { dirs: Direction[]; bg: GameObj<ColorComp & OpacityComp & AreaComp> };
-        const btns: BtnObj[] = [];
-
-        for (let i = 0; i < DIAL_BTNS.length; i++) {
-          const def = DIAL_BTNS[i];
-          const angle = -Math.PI / 2 + i * ((2 * Math.PI) / 12);
-          const cx = dialCX + Math.cos(angle) * dialRadius;
-          const cy = dialCY + Math.sin(angle) * dialRadius;
-
-          const [r, g, b] = DIAL_BTN_COLOR;
+        // ── Button factory ───────────────────────────────────────────
+        const mkBtn = (
+          cx: number, cy: number, sz: number,
+          label: string, lSz: number,
+          bgRgb: readonly [number, number, number],
+          txtRgb: readonly [number, number, number],
+          dirs: Direction[],
+        ) => {
+          const [r, g, b] = bgRgb;
           const bg = k.add([
-            k.rect(btnSize, btnSize, { radius: Math.floor(btnSize * 0.2) }),
+            k.rect(sz, sz, { radius: Math.floor(sz * 0.2) }),
             k.color(r, g, b),
-            k.opacity(DIAL_BTN_OPACITY_ENABLED),
+            k.opacity(BTN_OPACITY_ENABLED),
             k.area(),
-            k.pos(cx - btnSize / 2, cy - btnSize / 2),
+            k.pos(cx - sz / 2, cy - sz / 2),
             k.fixed(),
           ]) as GameObj<ColorComp & OpacityComp & AreaComp>;
 
-          k.add([
-            k.text(def.label, { size: labelSize, font: "monospace" }),
-            k.color(255, 255, 255),
+          const [tr, tg, tb] = txtRgb;
+          const lbl = k.add([
+            k.text(label, { size: lSz, font: "monospace" }),
+            k.color(tr, tg, tb),
             k.pos(cx, cy),
             k.anchor("center"),
             k.fixed(),
           ]);
 
-          // Capture dirs for the closure
-          const btnDirs = def.dirs;
+          const btnDirs = dirs;
           bg.onClick(() => {
             if (gameOver) return;
             if (isOpposite(btnDirs[0], dir)) return;
             turnQueue = [...btnDirs];
-            updateQueueDisplay();
           });
 
-          btns.push({ dirs: def.dirs, bg });
+          return { bg, lbl, bgRgb };
+        };
+
+        // ── 4 Base buttons (always visible, 2× size, white) ─────────
+        const DARK_TXT  = [20,  20,  20 ] as const;
+        const LIGHT_TXT = [230, 240, 255] as const;
+
+        type BtnEntry = {
+          dirs: Direction[];
+          bg: GameObj<ColorComp & OpacityComp & AreaComp>;
+          lbl: ReturnType<typeof k.add>;
+          bgRgb: readonly [number, number, number];
+        };
+
+        const baseBtns: BtnEntry[] = [
+          { dirs: ["up"],    ...mkBtn(upCX, upCY, baseSz, "↑", baseLblSz, BASE_BTN_ENABLED_COLOR, DARK_TXT, ["up"])    },
+          { dirs: ["down"],  ...mkBtn(dnCX, dnCY, baseSz, "↓", baseLblSz, BASE_BTN_ENABLED_COLOR, DARK_TXT, ["down"])  },
+          { dirs: ["left"],  ...mkBtn(ltCX, ltCY, baseSz, "←", baseLblSz, BASE_BTN_ENABLED_COLOR, DARK_TXT, ["left"])  },
+          { dirs: ["right"], ...mkBtn(rtCX, rtCY, baseSz, "→", baseLblSz, BASE_BTN_ENABLED_COLOR, DARK_TXT, ["right"]) },
+        ];
+
+        // ── Helper buttons (2 visible at a time, 1× size) ────────────
+        // 2 per direction = 8 total; only the pair matching current dir is shown.
+        const helperDefs: Array<{
+          forDir: Direction; cx: number; cy: number;
+          label: string; dirs: Direction[];
+        }> = [
+          // dir === "left"  → helpers near the Right button
+          { forDir: "left",  cx: hRightX,       cy: dpadCY - hOff, label: "↑→", dirs: ["up",    "right"] },
+          { forDir: "left",  cx: hRightX,       cy: dpadCY + hOff, label: "↓→", dirs: ["down",  "right"] },
+          // dir === "right" → helpers near the Left button
+          { forDir: "right", cx: hLeftX,        cy: dpadCY - hOff, label: "↑←", dirs: ["up",    "left"]  },
+          { forDir: "right", cx: hLeftX,        cy: dpadCY + hOff, label: "↓←", dirs: ["down",  "left"]  },
+          // dir === "up"    → helpers below the Down button
+          { forDir: "up",    cx: dpadCX - hOff, cy: hDownY,        label: "←↓", dirs: ["left",  "down"]  },
+          { forDir: "up",    cx: dpadCX + hOff, cy: hDownY,        label: "→↓", dirs: ["right", "down"]  },
+          // dir === "down"  → helpers above the Up button
+          { forDir: "down",  cx: dpadCX - hOff, cy: hUpY,          label: "←↑", dirs: ["left",  "up"]    },
+          { forDir: "down",  cx: dpadCX + hOff, cy: hUpY,          label: "→↑", dirs: ["right", "up"]    },
+        ];
+
+        type HelpEntry = BtnEntry & { forDir: Direction };
+        const helpBtns: HelpEntry[] = [];
+        for (const e of helperDefs) {
+          const { bg, lbl, bgRgb } = mkBtn(
+            e.cx, e.cy, helpSz, e.label, helpLblSz,
+            HELPER_BTN_ENABLED_COLOR, LIGHT_TXT, e.dirs,
+          );
+          bg.hidden  = true;
+          lbl.hidden = true;
+          helpBtns.push({ forDir: e.forDir, dirs: e.dirs, bg, lbl, bgRgb });
         }
 
+        // ── State updater ─────────────────────────────────────────────
+        const applyBtnStyle = (
+          bg: GameObj<ColorComp & OpacityComp & AreaComp>,
+          disabled: boolean,
+          enabledRgb: readonly [number, number, number],
+        ) => {
+          const [r, g, b] = disabled ? BTN_DISABLED_COLOR : enabledRgb;
+          bg.color.r = r;
+          bg.color.g = g;
+          bg.color.b = b;
+          bg.opacity = disabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED;
+        };
+
         updateDialState = () => {
-          for (const btn of btns) {
-            const disabled = isOpposite(btn.dirs[0], dir);
-            if (disabled) {
-              const [r, g, b] = DIAL_BTN_DISABLED_COLOR;
-              btn.bg.color.r = r;
-              btn.bg.color.g = g;
-              btn.bg.color.b = b;
-              btn.bg.opacity = DIAL_BTN_OPACITY_DISABLED;
-            } else {
-              const [r, g, b] = DIAL_BTN_COLOR;
-              btn.bg.color.r = r;
-              btn.bg.color.g = g;
-              btn.bg.color.b = b;
-              btn.bg.opacity = DIAL_BTN_OPACITY_ENABLED;
+          // Base buttons: gray + dim when the press would be a 180° reversal
+          for (const btn of baseBtns) {
+            applyBtnStyle(btn.bg, isOpposite(btn.dirs[0], dir), btn.bgRgb);
+          }
+
+          // Helper buttons: show only the 2 matching current dir
+          for (const hBtn of helpBtns) {
+            const show = hBtn.forDir === dir;
+            hBtn.bg.hidden  = !show;
+            hBtn.lbl.hidden = !show;
+            if (show) {
+              applyBtnStyle(hBtn.bg, isOpposite(hBtn.dirs[0], dir), HELPER_BTN_ENABLED_COLOR);
             }
           }
         };
 
-        updateQueueDisplay = () => {
-          queueLbl.text =
-            turnQueue.length > 0
-              ? "Queue: " + turnQueue.map((d) => arrowOf[d]).join(" , ")
-              : "Queue: —";
-        };
-
-        // Set initial disabled states
+        // Initialise button states
         updateDialState();
       }
+
 
       // ─── Game loop ───────────────────────────────────────────
       k.onUpdate(() => {
@@ -571,7 +603,6 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
         redraw();
         updateDialState();
-        updateQueueDisplay();
       });
 
       function triggerGameOver(): void {
