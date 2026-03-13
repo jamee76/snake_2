@@ -1,4 +1,4 @@
-import type { KAPLAYCtx, GameObj, ColorComp, OpacityComp, AreaComp, TextComp } from "kaplay";
+import type { KAPLAYCtx, GameObj, ColorComp, OpacityComp, AreaComp, SpriteComp, RotateComp } from "kaplay";
 import type { IPlatform } from "../../platform/platform.ts";
 import {
   GRID_COLS,
@@ -13,7 +13,6 @@ import {
   PURPLE_BLINK_MS,
   PURPLE_BLINK_PERIOD_MS,
   COLOR_PURPLE,
-  COLOR_HEAD_NORMAL,
   purpleSpawnChance,
   purpleInvincibilityMs,
   CTRL_H_FRAC,
@@ -228,49 +227,52 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const snakeObjs: ReturnType<typeof k.add>[] = [];
       let foodObj: ReturnType<typeof k.add> | null = null;
       let purpleFoodObj: ReturnType<typeof k.add> | null = null;
-      // Head is kept separate so its color can be updated between steps (blink)
-      let headObj: GameObj<ColorComp> | null = null;
+      // Head is kept separate so its opacity can be updated between steps (blink)
+      let headObj: GameObj<OpacityComp & RotateComp> | null = null;
 
       function redraw(): void {
-        // Remove previous snake body rects
+        // Remove previous snake body sprites
         for (const obj of snakeObjs) obj.destroy();
         snakeObjs.length = 0;
 
         // Remove previous head
         if (headObj) { headObj.destroy(); headObj = null; }
 
-        // Draw body
         const pad = Math.max(1, Math.floor(cellSize * 0.08));
+        const spriteSize = cellSize - pad * 2;
+
+        // Draw body
         for (let i = 1; i < snake.length; i++) {
           const { x, y } = cellToWorld(snake[i]);
           snakeObjs.push(
             k.add([
-              k.rect(cellSize - pad * 2, cellSize - pad * 2),
-              k.color(50, 160, 50),
+              k.sprite("snake_body", { width: spriteSize, height: spriteSize }),
               k.pos(x + pad, y + pad),
               k.fixed(),
             ])
           );
         }
 
-        // Draw head — purple when invincible, green otherwise
+        // Draw head — rotated to face the current direction
         if (snake.length > 0) {
           const { x, y } = cellToWorld(snake[0]);
-          const [hr, hg, hb] = invincible ? COLOR_PURPLE : COLOR_HEAD_NORMAL;
+          const headAngle =
+            dir === "right" ? 90 : dir === "down" ? 180 : dir === "left" ? 270 : 0;
           headObj = k.add([
-            k.rect(cellSize - pad * 2, cellSize - pad * 2),
-            k.color(hr, hg, hb),
-            k.pos(x + pad, y + pad),
+            k.sprite("snake_head", { width: spriteSize, height: spriteSize }),
+            k.pos(x + cellSize / 2, y + cellSize / 2),
+            k.anchor("center"),
+            k.rotate(headAngle),
+            k.opacity(1),
             k.fixed(),
-          ]) as GameObj<ColorComp>;
+          ]) as GameObj<OpacityComp & RotateComp>;
         }
 
         // Food
         if (foodObj) foodObj.destroy();
         const fp = cellToWorld(food);
         foodObj = k.add([
-          k.rect(cellSize - pad * 2, cellSize - pad * 2),
-          k.color(240, 80, 80),
+          k.sprite("apple", { width: spriteSize, height: spriteSize }),
           k.pos(fp.x + pad, fp.y + pad),
           k.fixed(),
         ]);
@@ -281,8 +283,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         if (purpleFood) {
           const pp = cellToWorld(purpleFood);
           purpleFoodObj = k.add([
-            k.rect(cellSize - pad * 2, cellSize - pad * 2),
-            k.color(...COLOR_PURPLE),
+            k.sprite("invincibility", { width: spriteSize, height: spriteSize }),
             k.pos(pp.x + pad, pp.y + pad),
             k.fixed(),
           ]);
@@ -296,14 +297,11 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
       // ─── 3×3 Grid UI (touch devices only) ─────────────────────────
       if (isTouch) {
-        const DARK_TXT  = [20,  20,  20 ] as const;
-        const LIGHT_TXT = [230, 240, 255] as const;
-
         // ── Sizing ──────────────────────────────────────────────────
         const cellSz = Math.max(40, Math.floor(Math.min(W / 3, CTRL_H / 3) * 0.90));
         const gap    = Math.max(3, Math.floor(cellSz * 0.07));
-        const lblSz  = Math.max(11, Math.floor(cellSz * 0.36));
         const step   = cellSz + gap;
+        const iconSz = Math.round(cellSz * 0.80);
 
         const gridCX = Math.floor(W / 2);
         const gridCY = Math.floor(GAME_H + CTRL_H / 2);
@@ -322,12 +320,10 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         // ── Panel background ─────────────────────────────────────────
         k.add([k.rect(W, CTRL_H), k.color(10, 15, 25), k.pos(0, GAME_H), k.fixed()]);
 
-        // ── Cell factory ─────────────────────────────────────────────
+        // ── Cell factory — creates the bg rect ───────────────────────
         const mkCell = (
           n: number,
-          label: string,
           bgRgb: readonly [number, number, number],
-          txtRgb: readonly [number, number, number],
           startDisabled: boolean,
         ) => {
           const cx = numpadCX(n);
@@ -342,35 +338,50 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
             k.fixed(),
           ]) as GameObj<ColorComp & OpacityComp & AreaComp>;
 
-          const [tr, tg, tb] = txtRgb;
-          const lbl = k.add([
-            k.text(label, { size: lblSz, font: "monospace" }),
-            k.color(tr, tg, tb),
+          return { bg, cx, cy };
+        };
+
+        // ── Icon factory — creates a centred sprite icon ──────────────
+        const mkIcon = (
+          spriteKey: string,
+          cx: number,
+          cy: number,
+          startDisabled: boolean,
+          angle = 0,
+        ) => {
+          return k.add([
+            k.sprite(spriteKey, { width: iconSz, height: iconSz }),
             k.pos(cx, cy),
             k.anchor("center"),
+            k.rotate(angle),
+            k.opacity(startDisabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED),
             k.fixed(),
-          ]) as GameObj<TextComp>;
-
-          return { bg, lbl };
+          ]) as GameObj<SpriteComp & OpacityComp & RotateComp>;
         };
 
         // ── Center (5) — always disabled, no action ─────────────────
-        mkCell(5, "", BTN_DISABLED_COLOR, DARK_TXT, true);
+        mkCell(5, BTN_DISABLED_COLOR, true);
 
         // ── Base direction buttons (2, 4, 6, 8) ─────────────────────
         type BtnEntry = {
           dirs: Direction[];
           bg: GameObj<ColorComp & OpacityComp & AreaComp>;
-          lbl: GameObj<TextComp>;
+          icon: GameObj<SpriteComp & OpacityComp & RotateComp>;
           bgRgb: readonly [number, number, number];
         };
 
-        const baseBtns: BtnEntry[] = [
-          { dirs: ["up"],    bgRgb: BASE_BTN_ENABLED_COLOR, ...mkCell(2, "↑", BASE_BTN_ENABLED_COLOR, DARK_TXT, false) },
-          { dirs: ["left"],  bgRgb: BASE_BTN_ENABLED_COLOR, ...mkCell(4, "←", BASE_BTN_ENABLED_COLOR, DARK_TXT, false) },
-          { dirs: ["right"], bgRgb: BASE_BTN_ENABLED_COLOR, ...mkCell(6, "→", BASE_BTN_ENABLED_COLOR, DARK_TXT, false) },
-          { dirs: ["down"],  bgRgb: BASE_BTN_ENABLED_COLOR, ...mkCell(8, "↓", BASE_BTN_ENABLED_COLOR, DARK_TXT, false) },
+        const baseBtnDefs: [number, Direction, string][] = [
+          [2, "up",    "btn_up"],
+          [4, "left",  "btn_left"],
+          [6, "right", "btn_right"],
+          [8, "down",  "btn_down"],
         ];
+
+        const baseBtns: BtnEntry[] = baseBtnDefs.map(([n, direction, spriteKey]) => {
+          const { bg, cx, cy } = mkCell(n, BASE_BTN_ENABLED_COLOR, false);
+          const icon = mkIcon(spriteKey, cx, cy, false);
+          return { dirs: [direction], bgRgb: BASE_BTN_ENABLED_COLOR, bg, icon };
+        });
 
         for (const btn of baseBtns) {
           btn.bg.onClick(() => {
@@ -381,7 +392,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         }
 
         // ── Macro corner buttons (1, 3, 7, 9) ───────────────────────
-        // Each corner has a different label/action per current direction.
+        // Each corner has a different action per current direction.
         // When not applicable for the current dir the button is disabled.
         type MacroCfg = { label: string; dirs: Direction[] };
         type MacroMap = Partial<Record<Direction, MacroCfg>>;
@@ -405,9 +416,13 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           },
         };
 
+        // Corners 1 and 7 use btn_rev_left; 3 and 9 use btn_rev_right
+        const macroRevSprite = (n: number) =>
+          n === 1 || n === 7 ? "btn_rev_left" : "btn_rev_right";
+
         type MacroEntry = {
           bg: GameObj<ColorComp & OpacityComp & AreaComp>;
-          lbl: GameObj<TextComp>;
+          icon: GameObj<SpriteComp & OpacityComp & RotateComp>;
           cfgMap: MacroMap;
           currentDirs: Direction[];
         };
@@ -415,9 +430,9 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         const macroEntries: MacroEntry[] = [];
         for (const [nStr, cfgMap] of Object.entries(MACRO_CORNER_CONFIG)) {
           const n = parseInt(nStr);
-          // Start with an empty label; updateDialState() sets the correct one immediately
-          const { bg, lbl } = mkCell(n, "", HELPER_BTN_ENABLED_COLOR, LIGHT_TXT, true);
-          const entry: MacroEntry = { bg, lbl, cfgMap, currentDirs: [] };
+          const { bg, cx, cy } = mkCell(n, HELPER_BTN_ENABLED_COLOR, true);
+          const icon = mkIcon(macroRevSprite(n), cx, cy, true);
+          const entry: MacroEntry = { bg, icon, cfgMap, currentDirs: [] };
           bg.onClick(() => {
             if (gameOver) return;
             if (entry.currentDirs.length === 0) return;
@@ -439,31 +454,43 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           bg.opacity = disabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED;
         };
 
+        // Direction → rotation angle (sprite drawn facing "up" = 0°)
+        const dirToAngle = (d: Direction): number => {
+          if (d === "right") return 90;
+          if (d === "down")  return 180;
+          if (d === "left")  return 270;
+          return 0;
+        };
+
         updateDialState = () => {
           // Base buttons: disabled if the press would be a 180° reversal
           for (const btn of baseBtns) {
-            applyBtnStyle(btn.bg, isOpposite(btn.dirs[0], dir), btn.bgRgb);
+            const disabled = isOpposite(btn.dirs[0], dir);
+            applyBtnStyle(btn.bg, disabled, btn.bgRgb);
+            btn.icon.opacity = disabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED;
           }
 
-          // Macro buttons: enabled only for specific current dirs
+          // Macro buttons: enabled only for specific current dirs;
+          // icon always rotated to match current snake direction
+          const angle = dirToAngle(dir);
           for (const entry of macroEntries) {
             const cfg = entry.cfgMap[dir];
             if (cfg) {
               entry.currentDirs = cfg.dirs;
-              entry.lbl.text = cfg.label;
               applyBtnStyle(entry.bg, false, HELPER_BTN_ENABLED_COLOR);
+              entry.icon.opacity = BTN_OPACITY_ENABLED;
             } else {
               entry.currentDirs = [];
-              entry.lbl.text = Object.values(entry.cfgMap)[0]?.label ?? "";
               applyBtnStyle(entry.bg, true, HELPER_BTN_ENABLED_COLOR);
+              entry.icon.opacity = BTN_OPACITY_DISABLED;
             }
+            entry.icon.angle = angle;
           }
         };
 
         // Initialise button states
         updateDialState();
       }
-
 
       // ─── Game loop ───────────────────────────────────────────
       k.onUpdate(() => {
@@ -491,19 +518,17 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           blinkAccum += dt;
 
           if (invincibleTimeMs <= 0) {
-            // Invincibility expired — restore head to green immediately
+            // Invincibility expired — restore head opacity immediately
             invincible = false;
             blinkAccum = 0;
             if (headObj) {
-              [headObj.color.r, headObj.color.g, headObj.color.b] = COLOR_HEAD_NORMAL;
+              headObj.opacity = 1;
             }
           } else if (invincibleTimeMs <= PURPLE_BLINK_MS && headObj) {
-            // Last 2 seconds — blink head between purple and green
+            // Last 2 seconds — blink head by toggling opacity
             const blinkOn =
               Math.floor(blinkAccum / PURPLE_BLINK_PERIOD_MS) % 2 === 0;
-            [headObj.color.r, headObj.color.g, headObj.color.b] = blinkOn
-              ? COLOR_PURPLE
-              : COLOR_HEAD_NORMAL;
+            headObj.opacity = blinkOn ? 1 : 0.4;
           }
         }
 

@@ -22,6 +22,18 @@ export async function bootstrap(platform: IPlatform): Promise<void> {
     debug: import.meta.env.DEV,
   });
 
+  // ─── Sprite assets ───────────────────────────────────────────────────────
+  k.loadSprite("apple",         "assets/sprites/apple_sprite.png");
+  k.loadSprite("invincibility", "assets/sprites/invicibility.png");
+  k.loadSprite("snake_body",    "assets/sprites/snake_body.png");
+  k.loadSprite("snake_head",    "assets/sprites/snake_head.png");
+  k.loadSprite("btn_up",        "assets/sprites/button_up.png");
+  k.loadSprite("btn_down",      "assets/sprites/button_down.png");
+  k.loadSprite("btn_left",      "assets/sprites/button_left.png");
+  k.loadSprite("btn_right",     "assets/sprites/button_right.png");
+  k.loadSprite("btn_rev_left",  "assets/sprites/button_reverse_left.png");
+  k.loadSprite("btn_rev_right", "assets/sprites/button_reverse_right.png");
+
   telemetry.log("bootstrap:ready");
 
   // Register scenes
