@@ -17,6 +17,8 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
   k.scene("result", (opts: ResultOpts) => {
     telemetry.log("scene:result", opts as unknown as Record<string, unknown>);
 
+    platform.gameplay.stop();
+
     const { length, bestLength, continuesUsed } = opts;
 
     const W = k.width();

@@ -36,6 +36,19 @@ export async function bootstrap(platform: IPlatform): Promise<void> {
 
   telemetry.log("bootstrap:ready");
 
+  // Notify Yandex that the game is loaded and ready to display
+  platform.gameplay.ready();
+
+  // Stop/resume audio when the tab is hidden/visible (required by Yandex Games).
+  // Intentionally not removed — bootstrap runs once per page lifetime.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      k.volume(0);
+    } else {
+      k.volume(1);
+    }
+  });
+
   // Register scenes
   registerMenuScene(k, platform);
   registerGameScene(k, platform);
