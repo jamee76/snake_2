@@ -1,4 +1,4 @@
-import type { KAPLAYCtx, GameObj, ColorComp, OpacityComp, AreaComp, SpriteComp, RotateComp } from "kaplay";
+import type { KAPLAYCtx, GameObj, ColorComp, OpacityComp, AreaComp, SpriteComp, RotateComp, ScaleComp } from "kaplay";
 import type { IPlatform } from "../../platform/platform.ts";
 import {
   GRID_COLS,
@@ -21,6 +21,8 @@ import {
   HELPER_BTN_ENABLED_COLOR,
   BTN_OPACITY_ENABLED,
   BTN_OPACITY_DISABLED,
+  BTN_OPACITY_SAME_DIR,
+  MACRO_BTN_OPACITY_DISABLED,
 } from "../systems/balance.ts";
 import { rng } from "../../shared/rng.ts";
 import { telemetry } from "../../shared/telemetry.ts";
@@ -347,16 +349,19 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           cx: number,
           cy: number,
           startDisabled: boolean,
-          angle = 0,
+          size: number = iconSz,
         ) => {
           return k.add([
-            k.sprite(spriteKey, { width: iconSz, height: iconSz }),
+            k.sprite(spriteKey, { width: size, height: size }),
             k.pos(cx, cy),
             k.anchor("center"),
-            k.rotate(angle),
+            k.rotate(0),
+            k.color(255, 255, 255),
+            k.scale(1, 1),
             k.opacity(startDisabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED),
+            k.area(),
             k.fixed(),
-          ]) as GameObj<SpriteComp & OpacityComp & RotateComp>;
+          ]) as GameObj<SpriteComp & ColorComp & OpacityComp & RotateComp & ScaleComp & AreaComp>;
         };
 
         // ── Center (5) — always disabled, no action ─────────────────
@@ -365,8 +370,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         // ── Base direction buttons (2, 4, 6, 8) ─────────────────────
         type BtnEntry = {
           dirs: Direction[];
-          bg: GameObj<ColorComp & OpacityComp & AreaComp>;
-          icon: GameObj<SpriteComp & OpacityComp & RotateComp>;
+          btn: GameObj<SpriteComp & ColorComp & OpacityComp & RotateComp & ScaleComp & AreaComp>;
           bgRgb: readonly [number, number, number];
         };
 
@@ -378,16 +382,17 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         ];
 
         const baseBtns: BtnEntry[] = baseBtnDefs.map(([n, direction, spriteKey]) => {
-          const { bg, cx, cy } = mkCell(n, BASE_BTN_ENABLED_COLOR, false);
-          const icon = mkIcon(spriteKey, cx, cy, false);
-          return { dirs: [direction], bgRgb: BASE_BTN_ENABLED_COLOR, bg, icon };
+          const cx = numpadCX(n);
+          const cy = numpadCY(n);
+          const btn = mkIcon(spriteKey, cx, cy, false, cellSz);
+          return { dirs: [direction], bgRgb: BASE_BTN_ENABLED_COLOR, btn };
         });
 
-        for (const btn of baseBtns) {
-          btn.bg.onClick(() => {
+        for (const entry of baseBtns) {
+          entry.btn.onClick(() => {
             if (gameOver) return;
-            if (isOpposite(btn.dirs[0], dir)) return;
-            turnQueue = [...btn.dirs];
+            if (isOpposite(entry.dirs[0], dir)) return;
+            turnQueue = [...entry.dirs];
           });
         }
 
@@ -421,8 +426,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           n === 1 || n === 7 ? "btn_rev_left" : "btn_rev_right";
 
         type MacroEntry = {
-          bg: GameObj<ColorComp & OpacityComp & AreaComp>;
-          icon: GameObj<SpriteComp & OpacityComp & RotateComp>;
+          n: number;
+          btn: GameObj<SpriteComp & ColorComp & OpacityComp & RotateComp & ScaleComp & AreaComp>;
           cfgMap: MacroMap;
           currentDirs: Direction[];
         };
@@ -430,10 +435,11 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
         const macroEntries: MacroEntry[] = [];
         for (const [nStr, cfgMap] of Object.entries(MACRO_CORNER_CONFIG)) {
           const n = parseInt(nStr);
-          const { bg, cx, cy } = mkCell(n, HELPER_BTN_ENABLED_COLOR, true);
-          const icon = mkIcon(macroRevSprite(n), cx, cy, true);
-          const entry: MacroEntry = { bg, icon, cfgMap, currentDirs: [] };
-          bg.onClick(() => {
+          const cx = numpadCX(n);
+          const cy = numpadCY(n);
+          const btn = mkIcon(macroRevSprite(n), cx, cy, true, cellSz);
+          const entry: MacroEntry = { n, btn, cfgMap, currentDirs: [] };
+          btn.onClick(() => {
             if (gameOver) return;
             if (entry.currentDirs.length === 0) return;
             turnQueue = [...entry.currentDirs];
@@ -443,48 +449,58 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
         // ── State updater ─────────────────────────────────────────────
         const applyBtnStyle = (
-          bg: GameObj<ColorComp & OpacityComp & AreaComp>,
+          btn: GameObj<ColorComp & OpacityComp>,
           disabled: boolean,
           enabledRgb: readonly [number, number, number],
+          opacityOverride?: number,
         ) => {
           const [r, g, b] = disabled ? BTN_DISABLED_COLOR : enabledRgb;
-          bg.color.r = r;
-          bg.color.g = g;
-          bg.color.b = b;
-          bg.opacity = disabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED;
+          btn.color.r = r;
+          btn.color.g = g;
+          btn.color.b = b;
+          btn.opacity = opacityOverride ?? (disabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED);
         };
 
-        // Direction → rotation angle (sprite drawn facing "up" = 0°)
-        const dirToAngle = (d: Direction): number => {
-          if (d === "right") return 90;
-          if (d === "down")  return 180;
-          if (d === "left")  return 270;
-          return 0;
+        // Determine sprite transform for each macro button given current dir.
+        // Buttons in the bottom row (7, 9) are the "default" orientation for upward movement;
+        // buttons in the top row (1, 3) and their column-mates need a vertical flip.
+        const getMacroTransform = (n: number, d: Direction): { flipY: boolean } => {
+          if (d === "up")    return { flipY: false };
+          if (d === "down")  return { flipY: true  };
+          // For left: btn 3 (top-right, correct) vs btn 9 (bottom-right, needs flip)
+          if (d === "left")  return { flipY: n === 9 };
+          // For right: btn 1 (top-left, correct) vs btn 7 (bottom-left, needs flip)
+          if (d === "right") return { flipY: n === 7 };
+          return { flipY: false };
         };
 
         updateDialState = () => {
-          // Base buttons: disabled if the press would be a 180° reversal
-          for (const btn of baseBtns) {
-            const disabled = isOpposite(btn.dirs[0], dir);
-            applyBtnStyle(btn.bg, disabled, btn.bgRgb);
-            btn.icon.opacity = disabled ? BTN_OPACITY_DISABLED : BTN_OPACITY_ENABLED;
+          // Base buttons: three visual states
+          for (const entry of baseBtns) {
+            const isOpp     = isOpposite(entry.dirs[0], dir);
+            const isSameDir = entry.dirs[0] === dir;
+            if (isSameDir) {
+              // Same axis as current movement — original colour but dimmed
+              applyBtnStyle(entry.btn, false, entry.bgRgb, BTN_OPACITY_SAME_DIR);
+            } else {
+              applyBtnStyle(entry.btn, isOpp, entry.bgRgb);
+            }
           }
 
           // Macro buttons: enabled only for specific current dirs;
-          // icon always rotated to match current snake direction
-          const angle = dirToAngle(dir);
+          // icon flipped vertically where needed to match orientation
           for (const entry of macroEntries) {
             const cfg = entry.cfgMap[dir];
             if (cfg) {
               entry.currentDirs = cfg.dirs;
-              applyBtnStyle(entry.bg, false, HELPER_BTN_ENABLED_COLOR);
-              entry.icon.opacity = BTN_OPACITY_ENABLED;
+              applyBtnStyle(entry.btn, false, HELPER_BTN_ENABLED_COLOR);
             } else {
               entry.currentDirs = [];
-              applyBtnStyle(entry.bg, true, HELPER_BTN_ENABLED_COLOR);
-              entry.icon.opacity = BTN_OPACITY_DISABLED;
+              applyBtnStyle(entry.btn, true, HELPER_BTN_ENABLED_COLOR, MACRO_BTN_OPACITY_DISABLED);
             }
-            entry.icon.angle = angle;
+            const { flipY } = getMacroTransform(entry.n, dir);
+            entry.btn.angle = 0;
+            entry.btn.scale.y = flipY ? -1 : 1;
           }
         };
 

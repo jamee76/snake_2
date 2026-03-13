@@ -85,3 +85,9 @@ export const BTN_OPACITY_ENABLED = 0.9;
 
 /** Opacity for disabled buttons. */
 export const BTN_OPACITY_DISABLED = 0.4;
+
+/** Opacity for "same direction" buttons (current axis, useless to press). */
+export const BTN_OPACITY_SAME_DIR = 0.2;
+
+/** Opacity for disabled macro corner buttons. */
+export const MACRO_BTN_OPACITY_DISABLED = 0.2;
