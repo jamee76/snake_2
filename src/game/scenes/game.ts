@@ -46,6 +46,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
     }) => {
       telemetry.log("scene:game", opts);
 
+      platform.gameplay.start();
+
       // ─── Touch detection ─────────────────────────────────────
       const isTouch =
         navigator.maxTouchPoints > 0 || "ontouchstart" in window;
@@ -669,6 +671,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       function triggerGameOver(): void {
         if (gameOver) return;
         gameOver = true;
+        platform.gameplay.stop();
         deathCount += 1;
 
         // Update best length

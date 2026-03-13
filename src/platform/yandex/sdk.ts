@@ -1,5 +1,5 @@
-import type { IPlatform } from "../platform.ts";
-import { stubAds, createYandexAds } from "./ads.ts";
+import type { IPlatform, IGameplay } from "../platform.ts";
+import { stubAds, createYandexAds, type YaSDK } from "./ads.ts";
 import { localStorageAdapter } from "./storage.ts";
 import { telemetry } from "../../shared/telemetry.ts";
 
@@ -9,13 +9,14 @@ import { telemetry } from "../../shared/telemetry.ts";
  */
 export async function createYandexPlatform(): Promise<IPlatform> {
   let ads = stubAds;
+  let ysdk: YaSDK | null = null;
 
   try {
     // YaGames is injected by Yandex Games environment as a global.
     const yaGames = (window as unknown as { YaGames?: { init(): Promise<unknown> } }).YaGames;
     if (yaGames) {
-      const ysdk = await yaGames.init();
-      ads = createYandexAds(ysdk as Parameters<typeof createYandexAds>[0]);
+      ysdk = await yaGames.init() as YaSDK;
+      ads = createYandexAds(ysdk);
       telemetry.log("platform:yandex:ready");
     } else {
       telemetry.log("platform:yandex:stub", { reason: "YaGames not found" });
@@ -24,11 +25,26 @@ export async function createYandexPlatform(): Promise<IPlatform> {
     telemetry.log("platform:yandex:error", { err: String(err) });
   }
 
+  const capturedSdk = ysdk;
+  const gameplay: IGameplay = capturedSdk
+    ? {
+        ready() { capturedSdk.features.LoadingAPI?.ready(); },
+        start() { capturedSdk.features.GameplayAPI?.start(); },
+        stop()  { capturedSdk.features.GameplayAPI?.stop();  },
+      }
+    : {
+        // Stub — no-op when running outside Yandex Games environment
+        ready() {},
+        start() {},
+        stop()  {},
+      };
+
   return {
     async init() {
       // Nothing extra needed after constructor.
     },
     ads,
     storage: localStorageAdapter,
+    gameplay,
   };
 }

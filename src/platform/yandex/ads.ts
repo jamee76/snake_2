@@ -58,7 +58,7 @@ function delay(ms: number): Promise<void> {
 }
 
 /** Minimal typing for the YaGames SDK surface we use. */
-interface YaSDK {
+export interface YaSDK {
   adv: {
     showFullscreenAdv(opts: {
       callbacks: { onClose?: () => void; onError?: () => void };
@@ -70,5 +70,9 @@ interface YaSDK {
         onError?: () => void;
       };
     }): void;
+  };
+  features: {
+    LoadingAPI?: { ready(): void };
+    GameplayAPI?: { start(): void; stop(): void };
   };
 }

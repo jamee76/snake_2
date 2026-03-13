@@ -3,9 +3,11 @@ import type { IPlatform } from "../../platform/platform.ts";
 import { telemetry } from "../../shared/telemetry.ts";
 
 /** Register the menu scene. */
-export function registerMenuScene(k: KAPLAYCtx, _platform: IPlatform): void {
+export function registerMenuScene(k: KAPLAYCtx, platform: IPlatform): void {
   k.scene("menu", () => {
     telemetry.log("scene:menu");
+
+    platform.gameplay.stop();
 
     const W = k.width();
     const H = k.height();
