@@ -35,11 +35,13 @@ function waitForYaGames(timeoutMs = 3000): Promise<YaGamesGlobal | null> {
 export async function createYandexPlatform(): Promise<IPlatform> {
   let ads = stubAds;
   let ysdk: YaSDK | null = null;
+  let lang = 'ru';
 
   try {
     const yaGames = await waitForYaGames(3000);
     if (yaGames) {
       ysdk = await yaGames.init() as YaSDK;
+      lang = ysdk.environment.i18n.lang ?? 'ru';
       ads = createYandexAds(ysdk);
       telemetry.log("platform:yandex:ready");
     } else {
@@ -70,5 +72,6 @@ export async function createYandexPlatform(): Promise<IPlatform> {
     ads,
     storage: localStorageAdapter,
     gameplay,
+    lang,
   };
 }

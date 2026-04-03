@@ -7,7 +7,6 @@ import {
   SNAKE_START_LENGTH,
   stepMsFromLength,
   KEY_BEST_LENGTH,
-  INTERSTITIAL_EVERY_N_DEATHS,
   PURPLE_LIFETIME_MS,
   PURPLE_COOLDOWN_MS,
   PURPLE_BLINK_MS,
@@ -124,13 +123,13 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
       const hudSize = Math.min(W * 0.04, 18);
 
       const lengthLabel = k.add([
-        k.text(`Length: ${snake.length}`, { size: hudSize, font: "monospace" }),
+        k.text(`Длина: ${snake.length}`, { size: hudSize, font: "monospace" }),
         k.color(200, 255, 200),
         k.pos(8, 4),
         k.fixed(),
       ]);
       const bestLabel = k.add([
-        k.text(`Best: ${bestLength}`, { size: hudSize, font: "monospace" }),
+        k.text(`Рекорд: ${bestLength}`, { size: hudSize, font: "monospace" }),
         k.color(200, 220, 160),
         k.pos(W - 8, 4),
         k.anchor("topright"),
@@ -556,7 +555,7 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
           invBarFill.hidden = false;
           invBarText.hidden = false;
           invBarFill.width = Math.max(0, barW * (invincibleTimeMs / maxInvincibleMs));
-          invBarText.text = `Inv: ${(invincibleTimeMs / 1000).toFixed(1)}s`;
+          invBarText.text = `Неуязв.: ${(invincibleTimeMs / 1000).toFixed(1)}с`;
         } else {
           invBarBg.hidden = true;
           invBarFill.hidden = true;
@@ -647,8 +646,8 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
             bestLength = snake.length;
             platform.storage.set(KEY_BEST_LENGTH, bestLength);
           }
-          lengthLabel.text = `Length: ${snake.length}`;
-          bestLabel.text = `Best: ${bestLength}`;
+          lengthLabel.text = `Длина: ${snake.length}`;
+          bestLabel.text = `Рекорд: ${bestLength}`;
           telemetry.log("game:eat", { length: snake.length });
 
           // Possibly spawn a purple dot (only if no cooldown and no active purple)
@@ -682,24 +681,17 @@ export function registerGameScene(k: KAPLAYCtx, platform: IPlatform): void {
 
         telemetry.log("game:over", { length: snake.length, deathCount });
 
-        // Show interstitial every N deaths
-        const shouldShowInterstitial =
-          deathCount % INTERSTITIAL_EVERY_N_DEATHS === 0;
-
         const goToResult = () => {
           k.go("result", {
             length: snake.length,
             bestLength,
             continuesUsed,
+            deathCount,
           });
         };
 
-        if (shouldShowInterstitial) {
-          platform.ads.showInterstitial().then(goToResult);
-        } else {
-          // Small delay so player sees they died
-          setTimeout(goToResult, 500);
-        }
+        // Small delay so player sees they died
+        setTimeout(goToResult, 500);
       }
     }
   );

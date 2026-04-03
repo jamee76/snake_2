@@ -24,4 +24,5 @@ export interface IPlatform {
   ads: IAds;
   storage: IStorage;
   gameplay: IGameplay;
+  lang: string;
 }

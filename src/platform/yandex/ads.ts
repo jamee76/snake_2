@@ -75,4 +75,9 @@ export interface YaSDK {
     LoadingAPI?: { ready(): void };
     GameplayAPI?: { start(): void; stop(): void };
   };
+  environment: {
+    i18n: {
+      lang: string;
+    };
+  };
 }
