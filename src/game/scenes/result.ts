@@ -116,7 +116,9 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
       if (deathCount > 0 && deathCount % INTERSTITIAL_EVERY_N_DEATHS === 0) {
         await platform.ads.showInterstitial();
       }
-      k.go("game");
+      // Always show the ready screen so the player can click to restore focus
+      // before the game starts (required after any ad, even a short one).
+      k.go("ready_screen", { continuesUsed: 0 });
     }
 
     function handleMenu(): void {
