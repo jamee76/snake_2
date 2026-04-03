@@ -2,11 +2,11 @@ import type { KAPLAYCtx } from "kaplay";
 import { telemetry } from "../../shared/telemetry.ts";
 
 interface ReadyScreenOpts {
-  snakeLength: number;
-  continuesUsed: number;
+  snakeLength?: number;
+  continuesUsed?: number;
 }
 
-/** Register the "Вы готовы?" scene shown after a rewarded ad to restore focus. */
+/** Register the "Вы готовы?" scene shown before starting the game (after an ad or retry) to restore focus. */
 export function registerReadyScene(k: KAPLAYCtx): void {
   k.scene("ready_screen", (opts: ReadyScreenOpts) => {
     telemetry.log("scene:ready_screen", opts as unknown as Record<string, unknown>);
