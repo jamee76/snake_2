@@ -37,7 +37,7 @@ export function registerMenuScene(k: KAPLAYCtx, platform: IPlatform): void {
 
     // Title
     k.add([
-      k.text("Snake Rush", { size: Math.min(W * 0.1, 64), font: "monospace" }),
+      k.text("Супер Змейка:\nЗвездный Рывок", { size: Math.min(W * 0.1, 64), font: "monospace" }),
       k.color(80, 220, 80),
       k.pos(W / 2, H * 0.35),
       k.anchor("center"),
@@ -46,7 +46,7 @@ export function registerMenuScene(k: KAPLAYCtx, platform: IPlatform): void {
 
     // Subtitle
     k.add([
-      k.text("Classic arcade — eat, grow, survive!", {
+      k.text("Классическая аркада — ешь, расти, выживай!", {
         size: Math.min(W * 0.035, 20),
         font: "monospace",
       }),
@@ -71,7 +71,7 @@ export function registerMenuScene(k: KAPLAYCtx, platform: IPlatform): void {
     ]);
 
     k.add([
-      k.text("Start Game", {
+      k.text("Начать игру", {
         size: Math.min(btnW * 0.18, 26),
         font: "monospace",
       }),

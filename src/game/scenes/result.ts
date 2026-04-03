@@ -4,6 +4,7 @@ import {
   KEY_LAST_REWARDED_AT,
   MAX_CONTINUES_PER_RUN,
   REWARDED_COOLDOWN_MS,
+  INTERSTITIAL_EVERY_N_DEATHS,
 } from "../systems/balance.ts";
 import { telemetry } from "../../shared/telemetry.ts";
 
@@ -11,6 +12,7 @@ interface ResultOpts {
   length: number;
   bestLength: number;
   continuesUsed: number;
+  deathCount: number;
 }
 
 export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
@@ -19,7 +21,7 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
 
     platform.gameplay.stop();
 
-    const { length, bestLength, continuesUsed } = opts;
+    const { length, bestLength, continuesUsed, deathCount } = opts;
 
     const W = k.width();
     const H = k.height();
@@ -29,7 +31,7 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
 
     // Title
     k.add([
-      k.text("Game Over", { size: Math.min(W * 0.1, 60), font: "monospace" }),
+      k.text("Конец игры", { size: Math.min(W * 0.1, 60), font: "monospace" }),
       k.color(240, 80, 80),
       k.pos(W / 2, H * 0.18),
       k.anchor("center"),
@@ -39,7 +41,7 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
     const statSize = Math.min(W * 0.045, 22);
 
     k.add([
-      k.text(`Length: ${length}`, { size: statSize, font: "monospace" }),
+      k.text(`Длина: ${length}`, { size: statSize, font: "monospace" }),
       k.color(200, 255, 200),
       k.pos(W / 2, H * 0.33),
       k.anchor("center"),
@@ -47,7 +49,7 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
     ]);
 
     k.add([
-      k.text(`Best:   ${bestLength}`, { size: statSize, font: "monospace" }),
+      k.text(`Рекорд: ${bestLength}`, { size: statSize, font: "monospace" }),
       k.color(200, 220, 160),
       k.pos(W / 2, H * 0.43),
       k.anchor("center"),
@@ -72,14 +74,14 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
 
     if (continueAvailable) {
       buttons.push({
-        label: "Continue\n(Ad)",
+        label: "Продолжить\n(реклама)",
         color: "#b8860b",
         action: handleContinue,
       });
     }
-    buttons.push({ label: "Retry", color: "#3cb43c", action: handleRetry });
+    buttons.push({ label: "Ещё раз", color: "#3cb43c", action: handleRetry });
     buttons.push({
-      label: "Menu",
+      label: "Меню",
       color: "#2255aa",
       action: handleMenu,
     });
@@ -109,8 +111,11 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
     });
 
     // ─── Actions ─────────────────────────────────────────────
-    function handleRetry(): void {
+    async function handleRetry(): Promise<void> {
       telemetry.log("result:retry");
+      if (deathCount > 0 && deathCount % INTERSTITIAL_EVERY_N_DEATHS === 0) {
+        await platform.ads.showInterstitial();
+      }
       k.go("game");
     }
 
@@ -125,8 +130,8 @@ export function registerResultScene(k: KAPLAYCtx, platform: IPlatform): void {
       if (result.rewarded) {
         platform.storage.set(KEY_LAST_REWARDED_AT, Date.now());
         telemetry.log("result:continue:rewarded", { length });
-        // Respawn with same snake length
-        k.go("game", {
+        // Show ready screen to restore focus after ad
+        k.go("ready_screen", {
           snakeLength: length,
           continuesUsed: continuesUsed + 1,
         });

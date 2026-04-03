@@ -3,6 +3,7 @@ import type { IPlatform } from "../platform/platform.ts";
 import { registerMenuScene } from "./scenes/menu.ts";
 import { registerGameScene } from "./scenes/game.ts";
 import { registerResultScene } from "./scenes/result.ts";
+import { registerReadyScene } from "./scenes/ready_screen.ts";
 import { telemetry } from "../shared/telemetry.ts";
 
 /**
@@ -53,6 +54,7 @@ export async function bootstrap(platform: IPlatform): Promise<void> {
   registerMenuScene(k, platform);
   registerGameScene(k, platform);
   registerResultScene(k, platform);
+  registerReadyScene(k);
 
   // Start at the menu
   k.go("menu");
